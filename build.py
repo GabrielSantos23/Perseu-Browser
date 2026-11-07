@@ -358,6 +358,7 @@ def main():
     if args.thread_count is not None:
         ninja_commandline.append('-j')
         ninja_commandline.append(args.thread_count)
+    ninja_commandline += ['-k', '0']  # local: collect every failure in one pass
     ninja_commandline.append('-C')
     ninja_commandline.append('out\\Default')
     ninja_commandline.append('chrome')

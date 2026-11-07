@@ -1,3 +1,10 @@
+> **This fork** builds an Arc-style browser for Windows: ungoogled-chromium-windows plus the
+> [Flecha](https://github.com/lucianodiisouza/flecha-browser) browser patches, ported to Chromium 157.
+> - `patches/flecha/flecha-chromium-157.patch`: the Flecha changes to Chromium, applied after the Windows patches (see `patches/series`).
+> - `flecha/`: the Flecha shell (the TypeScript sidebar UI) and its original patch series; build it with `npm install` and `npm run shell:build` there.
+> - `FLECHA-PORT-NOTES.md`: what was applied, ported by hand or left out.
+> - `flags.windows.gn` and `build.py` carry the settings the first local build used (no official/PGO build, no precompiled headers, `ninja -k 0`).
+
 # ungoogled-chromium-windows
 
 Windows packaging for [ungoogled-chromium](//github.com/Eloston/ungoogled-chromium).

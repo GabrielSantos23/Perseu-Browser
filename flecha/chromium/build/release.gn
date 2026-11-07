@@ -1,0 +1,30 @@
+# Flecha release build: one framework, what we ship. chromium/scripts/build-release.sh
+# writes this to out/Release/args.gn (FLECHA_OFFICIAL=1 adds is_official_build).
+is_debug = false
+is_component_build = false
+dcheck_always_on = false
+symbol_level = 0
+blink_symbol_level = 0
+v8_symbol_level = 0
+target_cpu = "arm64"
+# H.264/AAC, as in the dev build: X/Twitter, Instagram, Twitch and most MP4 video on the
+# web have no VP9/AV1 version, and without them it doesn't play.
+proprietary_codecs = true
+ffmpeg_branding = "Chrome"
+use_remoteexec = false
+# Builds that aren't official take Google's experiments from fieldtrial_testing_config.json,
+# Omnibox Everywhere's "search with Chromium from anywhere" among them; Flecha ships without.
+disable_fieldtrial_testing_config = true
+# Our patches shouldn't fail a 3-6 hour build over a warning.
+treat_warnings_as_errors = false
+# No PGO profiles in this checkout (they come with checkout_pgo_profiles).
+chrome_pgo_phase = 0
+# The shell, staged into the checkout by build-release.sh, goes into the framework's
+# Resources as flecha-shell (patch 0050).
+flecha_shell_dir = "//flecha/shell"
+# Sparkle, the auto-updater (patches 0040 and 0053): build-release.sh stages the official
+# Sparkle.framework (fetch-sparkle.sh) here. The public key is the EdDSA key already in the
+# release signer's login Keychain, from `generate_keys -p`; make-appcast.sh signs with it.
+flecha_sparkle_framework = "//flecha/Sparkle.framework"
+flecha_sparkle_feed_url = "https://flecha.dev/appcast.xml"
+flecha_sparkle_public_key = "AHjs14q8ghu3og63BEFxU5uOlOYTcb7GDOSI7+R6j9s="

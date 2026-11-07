@@ -1,0 +1,3 @@
+# Patches must keep LF line endings, or they no longer apply.
+*.patch text eol=lf
+patches/series text eol=lf

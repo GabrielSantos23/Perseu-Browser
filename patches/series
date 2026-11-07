@@ -24,3 +24,4 @@ ungoogled-chromium/windows/windows-fix-unsupported-llvm-flags.patch
 ungoogled-chromium/windows/windows-fix-building-without-crubit.patch
 ungoogled-chromium/windows/windows-fix-python.patch
 ungoogled-chromium/windows/windows-fix-typescript-lib-dom.patch
+flecha/flecha-chromium-157.patch

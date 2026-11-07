@@ -1,11 +1,11 @@
-chrome_pgo_phase=2
+chrome_pgo_phase=0
 enable_swiftshader=false
 ffmpeg_branding="Chrome"
 is_clang=true
 clang_version="23"
 is_component_build=false
 is_debug=false
-is_official_build=true
+is_official_build=false
 proprietary_codecs=true
 target_cpu="x64"
 use_sysroot=false
@@ -16,3 +16,5 @@ symbol_level=0
 enable_rust=true
 enable_mse_mpeg2ts_stream_parser=true
 rust_crubit_root="//third_party/rust-toolchain/crubit"
+
+enable_precompiled_headers=false
