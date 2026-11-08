@@ -1,3 +1,5 @@
 node_modules/
 dist/
 .DS_Store
+chromium/extensions/dist/
+chromium/shell/models/

@@ -16,7 +16,7 @@ export interface NativeContext {
   /**
    * Runs one of Flecha's commands, by id: every id in lib/shortcuts.ts (newTab,
    * toggleSidebar, …), plus `selectTab:1`…`selectTab:9` (⌘1…⌘9; 9 is the last tab) and
-   * `selectSpace:1`…`selectSpace:9` (⌃1…⌃9). `windowId` is the window the key was pressed in.
+   * `selectSpace:1`…`selectSpace:9` (Alt+1…Alt+9). `windowId` is the window the key was pressed in.
    */
   run(command: string, windowId?: number): void;
   /** The Chromium tab of an open Flecha tab (background.ts's `live` map). */
@@ -282,7 +282,7 @@ export function shortcutMap(state: Store['state']): Record<string, string> {
   const map: Record<string, string> = {};
   for (let i = 1; i <= 9; i++) {
     map[`CmdOrCtrl+${i}`] = `selectTab:${i}`;
-    map[`Ctrl+${i}`] = `selectSpace:${i}`;
+    map[`Alt+${i}`] = `selectSpace:${i}`; // Ctrl+N is the tab family on Windows
   }
   // ⌘O in a Flechinha: Open in Flecha, as in the Electron spike (the toolbar's button says so).
   map['CmdOrCtrl+O'] = 'openInFlecha';

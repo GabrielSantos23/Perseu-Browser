@@ -35,9 +35,19 @@
   box-shadow: none;
 }
 
+/* The home screen: plain white, or black in dark mode. */
 [data-surface='newtab'],
-[data-surface='newtab'] body {
-  background: color-mix(in srgb, var(--surface) 72%, var(--space-color, #cdd9f7));
+[data-surface='newtab'] body,
+[data-surface='newtab'] #empty-state {
+  background: #fff;
+}
+
+@media (prefers-color-scheme: dark) {
+  [data-surface='newtab'],
+  [data-surface='newtab'] body,
+  [data-surface='newtab'] #empty-state {
+    background: #000;
+  }
 }
 
 /* The welcome tour needs the whole window; it runs on the new tab page. */
@@ -74,60 +84,82 @@
   outline: none;
 }
 
+/* Windows 11's context menu; the colours are in tokens.css. */
 .shell-menu {
   position: fixed;
   min-width: 180px;
   max-height: calc(100vh - 8px);
   overflow-y: auto;
-  padding: 5px;
-  background: var(--surface);
-  border-radius: var(--radius-md);
-  box-shadow: var(--shadow-pop);
-  font-size: var(--text-md);
+  padding: 4px 0;
+  border: 1px solid var(--menu-border);
+  border-radius: 8px;
+  background: var(--menu-bg);
+  box-shadow: var(--menu-shadow);
+  color: var(--menu-text);
+  font: 400 14px / 20px var(--menu-font);
 }
 
 .shell-menu-item {
+  position: relative;
   display: block;
-  width: 100%;
-  padding: 4px 10px;
+  width: calc(100% - 8px);
+  min-height: 32px;
+  margin: 0 4px;
+  padding: 6px 12px;
   border-radius: 4px;
   text-align: left;
   white-space: pre;
+  color: inherit;
   cursor: default;
 }
 
 .shell-menu-item.active,
 .shell-menu-item.open {
-  background: var(--selection);
-  color: var(--selection-text);
+  background: var(--menu-hover);
   outline: none;
 }
 
+/* The submenu chevron, drawn thin like Segoe Fluent Icons' ChevronRight. */
+.shell-menu-item.has-submenu {
+  padding-right: 32px;
+}
+
 .shell-menu-item.has-submenu::after {
-  content: '›';
-  float: right;
-  margin-left: 16px;
-  opacity: 0.6;
+  content: '';
+  position: absolute;
+  right: 14px;
+  top: 50%;
+  width: 6px;
+  height: 6px;
+  border-top: 1px solid currentColor;
+  border-right: 1px solid currentColor;
+  transform: translateY(-50%) rotate(45deg);
 }
 
 .shell-menu-item:disabled {
-  opacity: 0.4;
+  color: var(--menu-disabled);
 }
 
 .shell-menu-item.checkable {
-  padding-left: 24px;
+  padding-left: 36px;
 }
 
 .shell-menu-item[aria-checked='true']::before {
-  content: '✓';
+  content: '';
   position: absolute;
-  margin-left: -15px;
+  left: 14px;
+  top: 50%;
+  width: 9px;
+  height: 5px;
+  border-left: 1.5px solid currentColor;
+  border-bottom: 1.5px solid currentColor;
+  transform: translateY(-70%) rotate(-45deg);
 }
 
 .shell-menu-separator {
   height: 1px;
-  margin: 5px 6px;
-  background: var(--surface-line);
+  margin: 4px 0;
+  background: var(--menu-line);
 }
 
 /* ---- questions --------------------------------------------------------------- */

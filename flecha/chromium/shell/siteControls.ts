@@ -30,6 +30,8 @@ function patternFor(origin: string) {
   return `${url.protocol}//${url.hostname}${url.port ? ':' + url.port : ''}/*`;
 }
 
+const CACHE: chrome.browsingData.DataTypeSet = { cache: true, cacheStorage: true };
+
 /** Signs out of one site: cookies, storage and cache. */
 async function clearSite(origin: string) {
   const data: chrome.browsingData.DataTypeSet = {
@@ -66,6 +68,19 @@ export function registerSiteControls(ctx: SiteControlsContext) {
       const chromeId = ctx.activeChromeId();
       if (chromeId !== undefined) await chrome.tabs.reload(chromeId);
       broadcast('flash', 'Site data cleared');
+    },
+    clearSiteCache: async (origin: string) => {
+      if (!/^https?:\/\//.test(String(origin))) return;
+      await chrome.browsingData.remove({ origins: [String(origin)] }, CACHE).catch(() => undefined);
+      broadcast('flash', 'Cache cleared');
+    },
+    clearSiteCookies: async (origin: string) => {
+      if (!/^https?:\/\//.test(String(origin))) return;
+      const data = { cookies: true, localStorage: true, indexedDB: true, serviceWorkers: true, fileSystems: true, webSQL: true };
+      await chrome.browsingData.remove({ origins: [String(origin)] }, data);
+      const chromeId = ctx.activeChromeId();
+      if (chromeId !== undefined) await chrome.tabs.reload(chromeId);
+      broadcast('flash', 'Cookies cleared');
     },
     setSitePermission: async (origin: string, permission: string, decision: Decision) => {
       const settings = SETTINGS[String(permission)];

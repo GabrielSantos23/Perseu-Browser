@@ -1,0 +1,30 @@
+<!doctype html>
+<html data-surface="topbar">
+  <head>
+    <meta charset="utf-8" />
+    <meta
+      http-equiv="Content-Security-Policy"
+      content="default-src 'self'; font-src 'self'; img-src * data: favicon:; style-src 'self'; script-src 'self'"
+    />
+    <title>Perseu</title>
+    <link rel="stylesheet" href="tokens.css" />
+    <link rel="stylesheet" href="topbar.css" />
+  </head>
+  <body>
+    <header id="bar">
+      <div id="nav">
+        <button id="back" class="icon-button" aria-label="Back" disabled><i data-icon="arrowLeft"></i></button>
+        <button id="forward" class="icon-button" aria-label="Forward" disabled><i data-icon="arrowRight"></i></button>
+        <button id="reload" class="icon-button" aria-label="Reload"><i data-icon="reload"></i></button>
+      </div>
+      <div id="site-group" hidden>
+        <button id="copy" class="icon-button" aria-label="Copy link"><i data-icon="link"></i></button>
+        <button id="site" aria-label="Edit the address"><img alt="" draggable="false" /><span class="name"></span></button>
+        <button id="site-controls" class="icon-button" aria-label="Site controls" aria-haspopup="dialog"><i data-icon="sliders"></i></button>
+      </div>
+      <button id="zoom" type="button" hidden></button>
+      <div id="toast" role="status" aria-live="polite" hidden></div>
+    </header>
+    <script type="module" src="topbar.js"></script>
+  </body>
+</html>

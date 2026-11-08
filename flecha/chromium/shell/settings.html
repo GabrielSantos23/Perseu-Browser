@@ -19,11 +19,10 @@
       </label>
       <button class="nav-item" data-pane="general"><span class="nav-icon gray"><i data-icon="settings"></i></span>General</button>
       <button class="nav-item" data-pane="import"><span class="nav-icon cyan"><i data-icon="import"></i></span>Import</button>
-      <button class="nav-item" data-pane="appearance"><span class="nav-icon pink"><i data-icon="palette"></i></span>Appearance</button>
+      <button class="nav-item" data-pane="appearance"><span class="nav-icon pink"><i data-icon="palette"></i></span>Theme</button>
       <button class="nav-item" data-pane="tabs"><span class="nav-icon teal"><i data-icon="tab"></i></span>Tabs</button>
       <button class="nav-item" data-pane="tabs-spaces"><span class="nav-icon indigo"><i data-icon="stack"></i></span>Tabs &amp; Spaces</button>
-      <button class="nav-item" data-pane="privacy"><span class="nav-icon blue"><i data-icon="lock"></i></span>Privacy</button>
-      <button class="nav-item" data-pane="downloads"><span class="nav-icon green"><i data-icon="download"></i></span>Downloads</button>
+      <button class="nav-item" data-pane="privacy"><span class="nav-icon blue"><i data-icon="lock"></i></span>Ad Blocker</button>
       <div class="nav-label">Developer</div>
       <button class="nav-item" data-pane="environments"><span class="nav-icon amber"><i data-icon="code"></i></span>Environments</button>
       <button class="nav-item" data-pane="boosts"><span class="nav-icon orange"><i data-icon="zap"></i></span>Boosts</button>
@@ -39,13 +38,6 @@
 
       <section class="pane" data-pane="general">
         <div class="card">
-          <div class="row">
-            <div class="row-text">
-              <strong>Default browser</strong>
-              <small id="defaultBrowserStatus"></small>
-            </div>
-            <button id="makeDefault" class="button">Make Default</button>
-          </div>
           <label class="row">
             <div class="row-text">
               <strong>Search engine</strong>
@@ -53,6 +45,20 @@
             </div>
             <select id="searchEngine" class="select"></select>
           </label>
+          <label class="row">
+            <div class="row-text">
+              <strong>Song identification key</strong>
+              <small>Your AudD token. Without one, Identify works only a few times a day.</small>
+            </div>
+            <input id="auddToken" class="select" type="password" autocomplete="off" spellcheck="false" placeholder="Paste your token" />
+          </label>
+          <div class="row">
+            <div class="row-text">
+              <strong>Perseu updates</strong>
+              <small id="updateText" role="status">Perseu checks for new versions every few hours.</small>
+            </div>
+            <button id="updateAction" class="button">Check Now</button>
+          </div>
           <div class="row">
             <div class="row-text">
               <strong>Welcome tour</strong>
@@ -124,8 +130,8 @@
           </label>
           <label class="row">
             <div class="row-text">
-              <strong>Open links from other apps in Flechinha</strong>
-              <small>Links from Slack, Mail or the terminal open in a small window of their own, so they don't clutter your Spaces. Keep one with Open in Flecha.</small>
+              <strong>Open links from other apps in a Mini Window</strong>
+              <small>Links from Slack, Mail or the terminal open in a small window of their own, so they don't clutter your Spaces. Keep one with Open in Perseu.</small>
             </div>
             <input type="checkbox" id="openLinksInFlechinha" class="switch" />
           </label>
@@ -161,37 +167,18 @@
 
       <section class="pane" data-pane="privacy">
         <div class="card">
-          <label class="row">
+          <div class="row">
             <div class="row-text">
-              <strong>Block ads and trackers</strong>
-              <small>Uses the EasyList and EasyPrivacy filter lists, in every Space.</small>
+              <strong>uBlock Origin</strong>
+              <small>Blocks ads and trackers on every site, in every Space.</small>
             </div>
-            <input type="checkbox" id="adBlock" class="switch" />
-          </label>
+            <button id="openUblock" class="button">Open Settings</button>
+          </div>
         </div>
         <p class="footnote">
           To keep a Space's cookies and logins apart from the others, open its editor (double-click the Space name)
           and turn on <em>Separate cookies and logins</em>.
         </p>
-      </section>
-
-      <section class="pane" data-pane="downloads">
-        <div class="card">
-          <div class="row">
-            <div class="row-text">
-              <strong>Save files to</strong>
-              <small id="downloadsFolder" class="mono"></small>
-            </div>
-            <button id="chooseFolder" class="button">Change…</button>
-          </div>
-          <label class="row">
-            <div class="row-text">
-              <strong>Ask where to save each file</strong>
-              <small>Otherwise files go straight to the folder above.</small>
-            </div>
-            <input type="checkbox" id="askWhereToSave" class="switch" />
-          </label>
-        </div>
       </section>
 
       <section class="pane" data-pane="environments">
@@ -206,7 +193,7 @@
 
       <section class="pane" data-pane="boosts">
         <p class="lead">
-          Boosts are your own TypeScript and CSS for any site, kept in Flecha and edited on the Boosts page. They're
+          Boosts are your own TypeScript and CSS for any site, kept in Perseu and edited on the Boosts page. They're
           named after the host: <code>github.com.ts</code>, <code>github.com.css</code>, or <code>all.css</code> for every site. Styles
           apply as you save; scripts reload the page.
         </p>
@@ -230,7 +217,7 @@
         <div class="card">
           <label class="row">
             <div class="row-text">
-              <strong>Let coding agents use Flecha</strong>
+              <strong>Let coding agents use Perseu</strong>
               <small>Full access. Only programs on this Mac that have the token can connect.</small>
             </div>
             <input type="checkbox" id="agentEnabled" class="switch" />

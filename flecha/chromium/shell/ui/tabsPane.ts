@@ -1,3 +1,4 @@
+import { spaceTint } from '../lib/spaceTint';
 import type { PinnedNode, TabPlacement, TabsEdit, TabsView } from '../../shared/types';
 import type { IconName } from './icons.js';
 import { SPACE_COLORS, SPACE_EMOJIS } from './spaceChoices.js';
@@ -145,7 +146,7 @@ export function setupTabsPane(icon: (name: IconName) => SVGSVGElement) {
             el('span', { class: 'tm-count' }, String(view.favorites.length)),
             el('span', { class: 'tm-head-actions' }, iconButton('plus', 'Add a favorite', () => startAdd('favorites'))),
           ),
-          el('div', { class: 'card tm-card' }, list('favorites', { zone: 'favorites' }, favorites.map((id) => tabRow(id, 0)), 0, 'Favorites stay in every Space. Drag tabs here.')),
+          el('div', { class: 'card tm-card' }, list('favorites', { zone: 'favorites' }, favorites.map((id) => tabRow(id, 0)), 0, 'Favorites of the open Space. Drag tabs here.')),
         ),
       );
     }
@@ -182,7 +183,7 @@ export function setupTabsPane(icon: (name: IconName) => SVGSVGElement) {
       el('button', { class: `tm-disclosure${open ? ' open' : ''}`, title: open ? 'Collapse' : 'Expand', onclick: () => toggle(space.id) }, icon('chevron')),
       el(
         'button',
-        { class: 'tm-space-badge', style: `--space: ${space.color}`, title: 'Icon and colour', onclick: (e: MouseEvent) => openSpaceEditor(space.id, e.currentTarget as HTMLElement) },
+        { class: 'tm-space-badge', style: `--space: ${spaceTint(space.color, false)}`, title: 'Icon and colour', onclick: (e: MouseEvent) => openSpaceEditor(space.id, e.currentTarget as HTMLElement) },
         space.emoji || space.name[0]?.toUpperCase() || '•',
       ),
       name,
@@ -312,7 +313,7 @@ export function setupTabsPane(icon: (name: IconName) => SVGSVGElement) {
       el(
         'span',
         { class: 'tm-actions' },
-        iconButton('external', 'Show in Flecha', () => api.showTab(id)),
+        iconButton('external', 'Show in Perseu', () => api.showTab(id)),
         iconButton('pencil', 'Edit', () => startEditing({ kind: 'tab', id, focus: 'title' })),
         iconButton('trash', 'Delete', () => send({ op: 'delete', tabIds: [id] })),
       ),
@@ -858,13 +859,13 @@ export function setupTabsPane(icon: (name: IconName) => SVGSVGElement) {
       el('button', { class: `tm-emoji${space.emoji ? '' : ' selected'}`, title: 'No icon', onclick: () => update({ emoji: '' }) }, icon('close')),
       ...SPACE_EMOJIS.map((e) => el('button', { class: `tm-emoji${space.emoji === e ? ' selected' : ''}`, onclick: () => update({ emoji: e }) }, e)),
     );
-    const custom = el('input', { type: 'color', value: space.color, title: 'Custom colour' });
+    const custom = el('input', { type: 'color', value: spaceTint(space.color, false), title: 'Custom colour' });
     custom.addEventListener('input', () => update({ color: custom.value }));
     node.querySelector('.tm-pop-swatches')!.replaceChildren(
       ...SPACE_COLORS.map((color) =>
         el('button', { class: `tm-swatch${space.color === color ? ' selected' : ''}`, style: `--swatch: ${color}`, title: color, onclick: () => update({ color }) }),
       ),
-      el('label', { class: `tm-swatch custom${SPACE_COLORS.includes(space.color) ? '' : ' selected'}`, style: `--swatch: ${space.color}`, title: 'Custom colour' }, custom),
+      el('label', { class: `tm-swatch custom${SPACE_COLORS.includes(space.color) || space.color === 'default' ? '' : ' selected'}`, style: `--swatch: ${spaceTint(space.color, false)}`, title: 'Custom colour' }, custom),
     );
     (node.querySelector('.tm-pop-delete') as HTMLButtonElement).disabled = view!.spaces.length < 2;
     placeSpaceEditor();

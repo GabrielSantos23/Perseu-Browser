@@ -15,7 +15,7 @@ export const SHORTCUTS = [
   { id: 'find', group: 'Getting around', label: 'Find in page', keys: 'CmdOrCtrl+F' },
   { id: 'toggleSidebar', group: 'Getting around', label: 'Show or hide the sidebar', keys: 'CmdOrCtrl+S' },
   { id: 'settings', group: 'Getting around', label: 'Settings', keys: 'CmdOrCtrl+,' },
-  { id: 'newFlechinha', group: 'Tabs', label: 'New Flechinha window', keys: 'Alt+CmdOrCtrl+N' },
+  { id: 'newFlechinha', group: 'Tabs', label: 'New Mini Window', keys: 'Alt+CmdOrCtrl+N' },
   { id: 'closeTab', group: 'Tabs', label: 'Close tab', keys: 'CmdOrCtrl+W' },
   { id: 'reopenTab', group: 'Tabs', label: 'Reopen closed tab', keys: 'CmdOrCtrl+Shift+T' },
   { id: 'nextTab', group: 'Tabs', label: 'Next tab', keys: 'Ctrl+Tab' },
@@ -47,8 +47,8 @@ export type ShortcutId = (typeof SHORTCUTS)[number]['id'];
 
 /** Shortcuts that are a family of keys (⌘1…⌘9) and can't be recorded as one. */
 const FIXED: ShortcutInfo[] = [
-  { id: 'tabN', group: 'Tabs', label: 'Go to tab · last tab', keys: '⌘1 … ⌘9', fixed: true },
-  { id: 'spaceN', group: 'Spaces', label: 'Go to Space', keys: '⌃1 … ⌃9', fixed: true },
+  { id: 'tabN', group: 'Tabs', label: 'Go to tab · last tab', keys: 'Ctrl+1 … Ctrl+9', fixed: true },
+  { id: 'spaceN', group: 'Spaces', label: 'Go to Space', keys: 'Alt+1 … Alt+9', fixed: true },
   { id: 'closePeek', group: 'Split & Peek', label: 'Close Peek', keys: 'Esc', fixed: true },
 ];
 
@@ -77,16 +77,15 @@ export function sameKeys(a: string, b: string) {
   return norm(a) === norm(b);
 }
 
-/** macOS notation: "Alt+CmdOrCtrl+Shift+T" → "⌥⇧⌘T". */
+/** Windows notation: "Alt+CmdOrCtrl+Shift+T" → "Ctrl+Alt+Shift+T". */
 export function displayKeys(keys: string | undefined) {
   if (!keys) return '';
   const parts = keys.split('+');
   const mods = new Set(parts.slice(0, -1).map((m) => m.replace(/CmdOrCtrl|CommandOrControl|Command/, 'Cmd').replace('Option', 'Alt').replace('Control', 'Ctrl')));
   const key = parts[parts.length - 1];
-  const names: Record<string, string> = { Left: '←', Right: '→', Up: '↑', Down: '↓', Return: '↩', Enter: '↩', Tab: '⇥', Space: 'Space', Escape: 'Esc', Backspace: '⌫', Delete: '⌦', '-': '−' };
-  return (
-    (mods.has('Ctrl') ? '⌃' : '') + (mods.has('Alt') ? '⌥' : '') + (mods.has('Shift') ? '⇧' : '') + (mods.has('Cmd') ? '⌘' : '') + (names[key] ?? key.toUpperCase())
-  );
+  const names: Record<string, string> = { Left: '←', Right: '→', Up: '↑', Down: '↓', Return: 'Enter', Escape: 'Esc', Delete: 'Del' };
+  const shown = [mods.has('Ctrl') || mods.has('Cmd') ? 'Ctrl' : '', mods.has('Alt') ? 'Alt' : '', mods.has('Shift') ? 'Shift' : ''];
+  return [...shown.filter(Boolean), names[key] ?? key.toUpperCase()].join('+');
 }
 
 /** Everything Settings shows, in order, with your keys applied. */

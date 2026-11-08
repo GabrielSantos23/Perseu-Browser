@@ -65,8 +65,8 @@ export function setShortcut(store: Store, id: string, keys: string | null): stri
     return undefined;
   }
   if (keys !== null && !ACCELERATOR.test(keys)) return undefined;
-  // ⌘1…⌘9 and ⌃1…⌃9 pick tabs and Spaces.
-  if (keys && /^(Cmd|Ctrl)\+\d$/.test(keys)) return `${displayKeys(keys)} already goes to a tab or Space.`;
+  // Ctrl+1…9 and Alt+1…9 pick tabs and Spaces.
+  if (keys && /^(Cmd|CmdOrCtrl|Ctrl|Alt)\+\d$/.test(keys)) return `${displayKeys(keys)} already goes to a tab or Space.`;
   let notice: string | undefined;
   if (keys) {
     for (const other of SHORTCUTS) {

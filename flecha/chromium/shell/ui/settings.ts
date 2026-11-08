@@ -48,7 +48,10 @@ try {
   // Private storage can be unavailable.
 }
 // A pane asked for by the menu (Help → Keyboard Shortcuts) wins over the last one used.
+if (new URLSearchParams(location.search).has('embedded')) document.documentElement.dataset.embedded = '';
 showPane(location.hash.slice(1) || lastPane);
+// chrome://settings's menu picks the pane.
+window.addEventListener('hashchange', () => showPane(location.hash.slice(1)));
 api.onPane(showPane);
 
 // ---- search: every setting, shortcut and pane, found by any word -------------------------
@@ -156,12 +159,7 @@ api.onFind(() => {
   field.focus();
   field.select();
 });
-const adBlock = document.getElementById('adBlock') as HTMLInputElement;
 const searchEngine = document.getElementById('searchEngine') as HTMLSelectElement;
-const downloadsFolder = document.getElementById('downloadsFolder')!;
-const askWhereToSave = document.getElementById('askWhereToSave') as HTMLInputElement;
-const makeDefault = document.getElementById('makeDefault') as HTMLButtonElement;
-const defaultStatus = document.getElementById('defaultBrowserStatus')!;
 
 type EnvironmentDraft = SettingsView['environments'][number];
 let environments: EnvironmentDraft[] = [];
@@ -420,7 +418,7 @@ api.onKey(async (key) => {
   if (key.code === 'Escape' && !key.shift && !key.control && !key.alt && !key.meta) return startRecording(undefined);
   const removing = (key.code === 'Backspace' || key.code === 'Delete') && !key.shift && !key.control && !key.alt && !key.meta;
   const keys = removing ? null : acceleratorFor(key);
-  if (keys === undefined) return showNotice('Use at least one of ⌘ ⌃ ⌥ with a key, or a function key.');
+  if (keys === undefined) return showNotice('Use Ctrl or Alt with a key, or a function key.');
   await startRecording(undefined);
   applyShortcuts(await api.set({ shortcut: { id, keys } }));
 });
@@ -472,14 +470,10 @@ document.getElementById('copyAgentJson')!.addEventListener('click', (e) => copie
 document.getElementById('newAgentToken')!.addEventListener('click', async () => render(await api.newAgentToken()));
 
 function render(view: SettingsView) {
-  adBlock.checked = view.adBlock;
   if (searchEngine.options.length !== view.searchEngines.length) {
     searchEngine.replaceChildren(...view.searchEngines.map((e) => new Option(e.name, e.id)));
   }
   searchEngine.value = view.searchEngine;
-  downloadsFolder.textContent = view.downloadsFolder;
-  downloadsFolder.title = view.downloadsFolder;
-  askWhereToSave.checked = view.askWhereToSave;
   for (const card of document.querySelectorAll<HTMLElement>('.theme-card')) {
     card.classList.toggle('selected', card.dataset.theme === view.theme);
     card.setAttribute('aria-checked', String(card.dataset.theme === view.theme));
@@ -509,18 +503,8 @@ function render(view: SettingsView) {
     environments = view.environments;
     renderEnvironments();
   }
-
-  const { isDefault, canSet } = view.defaultBrowser;
-  makeDefault.hidden = isDefault;
-  makeDefault.disabled = !canSet;
-  defaultStatus.textContent = isDefault
-    ? 'Flecha is your default browser.'
-    : canSet
-      ? 'Links from other apps open in your current default browser.'
-      : 'Not available in this build of Flecha.';
 }
 
-makeDefault.addEventListener('click', async () => render(await api.makeDefaultBrowser()));
 // macOS asks for confirmation in its own dialog, so check again when the window regains focus.
 window.addEventListener('focus', async () => render(await api.get()));
 // The agent bridge's address and the native host's errors come later than the change that asked for them.
@@ -528,12 +512,38 @@ api.onChange(async () => render(await api.get()));
 
 document.getElementById('openBoosts')!.addEventListener('click', () => api.openBoosts());
 document.getElementById('showTour')!.addEventListener('click', () => api.showTour());
-document.getElementById('chooseFolder')!.addEventListener('click', async () => render(await api.chooseDownloadsFolder()));
-askWhereToSave.addEventListener('change', async () => render(await api.set({ askWhereToSave: askWhereToSave.checked })));
+
+const updateText = document.getElementById('updateText')!;
+const updateAction = document.getElementById('updateAction') as HTMLButtonElement;
+let updateReady = false;
+type UpdateStatus = { state: string; version?: string };
+function showUpdate(status?: UpdateStatus) {
+  const state = status?.state ?? 'idle';
+  const view: Record<string, [string, string, boolean?]> = {
+    idle: ['Perseu checks for new versions every few hours.', 'Check Now'],
+    checking: ['Looking for a new version…', 'Check Now', true],
+    current: ['Perseu is up to date.', 'Check Now'],
+    ready: [`Version ${status?.version} is ready. Your tabs reopen after the restart.`, 'Restart to Update'],
+    installing: ['Installing the update…', 'Restart to Update', true],
+    unsupported: ['Updates work only in an installed copy of Perseu.', 'Check Now', true],
+    failed: ['Couldn’t update Perseu. Check your connection and try again.', 'Try Again'],
+  };
+  const [text, label, disabled] = view[state] ?? view.idle;
+  updateText.textContent = text;
+  updateAction.textContent = label;
+  updateAction.disabled = !!disabled;
+  updateReady = state === 'ready';
+}
+void chrome.storage.local.get('updateStatus').then((saved) => showUpdate(saved.updateStatus as UpdateStatus | undefined));
+chrome.storage.local.onChanged.addListener((change) => change.updateStatus && showUpdate(change.updateStatus.newValue as UpdateStatus | undefined));
+updateAction.addEventListener('click', () => void (updateReady ? api.installUpdate() : api.checkForUpdate()));
 
 searchEngine.addEventListener('change', async () =>
   render(await api.set({ searchEngine: searchEngine.value as SettingsView['searchEngine'] })),
 );
-adBlock.addEventListener('change', async () => render(await api.set({ adBlock: adBlock.checked })));
+const auddToken = document.getElementById('auddToken') as HTMLInputElement;
+void chrome.storage.local.get('auddToken').then((saved) => (auddToken.value = String(saved.auddToken ?? '')));
+auddToken.addEventListener('change', () => void chrome.storage.local.set({ auddToken: auddToken.value.trim() }));
+document.getElementById('openUblock')!.addEventListener('click', () => void chrome.tabs.create({ url: 'chrome-extension://hondaflceahejakmcphhbjmjlacadinj/dashboard.html' }));
 
 api.get().then(render);

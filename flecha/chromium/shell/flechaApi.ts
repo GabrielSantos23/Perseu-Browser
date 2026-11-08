@@ -4,8 +4,10 @@
  */
 import type { FlechaApi, PaletteMode, UiState } from '../shared/types';
 import { spaceTint } from './lib/spaceTint';
+import { resolveInput } from './lib/url';
+import { TOP_BAR_HEIGHT, topBarColors } from './lib/topBar';
 import { cmd, invoke, on } from './client';
-import { confirmDeleteSpace, copy, setupWindowUi, showMenu } from './windowUi';
+import { confirmDeleteSpace, copy, localMenu, setupWindowUi, showMenu } from './windowUi';
 import { incognito } from './incognito';
 
 const surface = document.documentElement.dataset.surface;
@@ -44,7 +46,9 @@ const windowId = surface === 'window' && framed ? chrome.flechaPrivate.getWindow
 function applyFrame() {
   if (!windowId || !frameState || !lastState) return;
   const background = spaceTint(lastState.tint, systemDark.matches);
-  void windowId.then((id) => chrome.flechaPrivate.setFrame({ ...frameState!, background }, id));
+  // The top bar (topbar.ts), in the page's colour; the window buttons take its text colour.
+  const topBarForeground = topBarColors(lastState.siteColor, systemDark.matches).fg;
+  void windowId.then((id) => chrome.flechaPrivate.setFrame({ ...frameState!, background, topBar: TOP_BAR_HEIGHT, topBarForeground }, id));
 }
 on('frame', (state) => {
   frameState = state;
@@ -55,6 +59,14 @@ const paletteListeners: Array<(mode: PaletteMode) => void> = [];
 const renameListeners: Array<(tabId: string) => void> = [];
 setupWindowUi({ rename: (tabId) => renameListeners.forEach((cb) => cb(tabId)), state: () => lastState });
 systemDark.addEventListener('change', () => lastState && emitState(lastState));
+
+/** The home screen's input. In a window of its own it goes to that window's page, not the main one. */
+async function navigateFromHome(input: string) {
+  const me = await chrome.tabs.getCurrent();
+  const own = me?.id !== undefined && (await chrome.flechaPrivate?.getFlechinhas?.())?.includes(me.windowId);
+  if (own) void chrome.tabs.update(me!.id!, { url: resolveInput(input, lastState?.searchEngine) });
+  else cmd('navigate')(input);
+}
 
 const api: FlechaApi = {
   onState: (cb) => void stateListeners.push(cb),
@@ -82,16 +94,24 @@ const api: FlechaApi = {
   importBrowser: (id) => invoke('importBrowser', id),
   importBrowserCookies: (id) => invoke('importBrowserCookies', id),
   // On the new tab page, what you type opens in this tab.
-  newTab: surface === 'newtab' ? cmd('navigate') : cmd('newTab'),
+  newTab: surface === 'newtab' ? (input) => void navigateFromHome(String(input)) : cmd('newTab'),
   navigate: cmd('navigate'),
   activate: cmd('activate'),
   close: cmd('close'),
   back: cmd('back'),
   forward: cmd('forward'),
   reload: cmd('reload'),
+  stop: cmd('stop'),
   switchSpace: cmd('switchSpace'),
   newSpace: cmd('newSpace'),
   updateSpace: cmd('updateSpace'),
+  setOverlay: cmd('setOverlay'),
+  onOpenSitePanel: (cb) => on('site-panel', cb),
+  // The song card (nowPlaying.ts).
+  onNowPlaying: (cb) => on('now-playing', cb),
+  identifySong: cmd('identifySong'),
+  mediaControl: cmd('mediaControl'),
+  dismissNowPlaying: cmd('dismissNowPlaying'),
   setSpaceIsolated: cmd('setSpaceIsolated'),
   // Electron asks first, in a message box; the page asks in its own dialog.
   deleteSpace: (id) => void confirmDeleteSpace(id),
@@ -126,8 +146,14 @@ const api: FlechaApi = {
   copyText: (text, message) => void copy(String(text), typeof message === 'string' ? message : 'Link copied'),
   renameTab: cmd('renameTab'),
   toggleMute: cmd('toggleMute'),
+  openArchived: cmd('openArchived'),
   capturePage: cmd('capturePage'),
   clearSiteData: cmd('clearSiteData'),
+  clearSiteCache: cmd('clearSiteCache'),
+  clearSiteCookies: cmd('clearSiteCookies'),
+  getAutoPip: (url) => chrome.flechaPrivate?.getAutoPip?.(url).catch(() => undefined) ?? Promise.resolve(undefined),
+  setAutoPip: (url, allowed) => void chrome.flechaPrivate?.setAutoPip?.(url, allowed).catch(() => undefined),
+  popupMenu: (items) => localMenu(items),
   setSitePermission: cmd('setSitePermission'),
   zoom: cmd('zoom'),
   openDevTools: cmd('openDevTools'),

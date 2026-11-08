@@ -1,0 +1,150 @@
+# Builds and publishes Perseu when ungoogled-chromium-windows moves to a new Chromium.
+# reusable-build.yml splits the compile into stages, each under GitHub's 6 hour job limit.
+name: perseu-auto
+
+on:
+  schedule:
+    - cron: '17 */6 * * *'
+  workflow_dispatch:
+    inputs:
+      force:
+        description: Rebuild even if this Chromium version was already tried
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
+
+concurrency:
+  group: perseu-auto
+  cancel-in-progress: false
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    outputs:
+      build: ${{ steps.merge.outputs.build }}
+      version: ${{ steps.merge.outputs.version }}
+      branch: ${{ steps.merge.outputs.branch }}
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
+      - name: Merge a new upstream version
+        id: merge
+        env:
+          FORCE: ${{ inputs.force }}
+        run: |
+          set -euo pipefail
+          chromium_version() {
+            local sha
+            sha="$(git ls-tree "$1" ungoogled-chromium | awk '{print $3}')"
+            curl -fsSL "https://raw.githubusercontent.com/ungoogled-software/ungoogled-chromium/$sha/chromium_version.txt" | tr -d '[:space:]'
+          }
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git remote add upstream https://github.com/ungoogled-software/ungoogled-chromium-windows.git
+          git fetch --no-tags upstream master
+
+          current="$(chromium_version HEAD)"
+          version="$(chromium_version upstream/master)"
+          branch="auto/$version"
+          echo "Perseu base: $current, upstream: $version"
+
+          highest="$(printf '%s\n%s\n' "$current" "$version" | sort -V | tail -1)"
+          if [ "$FORCE" != true ]; then
+            if [ "$version" = "$current" ] || [ "$highest" != "$version" ]; then
+              echo 'build=false' >> "$GITHUB_OUTPUT"
+              exit 0
+            fi
+            # A failed attempt keeps its branch and has an issue; it isn't retried every 6 hours.
+            if git ls-remote --exit-code origin "refs/heads/$branch" >/dev/null; then
+              echo "$branch was already tried"
+              echo 'build=false' >> "$GITHUB_OUTPUT"
+              exit 0
+            fi
+          fi
+
+          git checkout -B "$branch"
+          git merge --no-edit upstream/master
+          git push --force origin "$branch"
+          {
+            echo 'build=true'
+            echo "version=$version"
+            echo "branch=$branch"
+          } >> "$GITHUB_OUTPUT"
+
+  build:
+    needs: check
+    if: needs.check.outputs.build == 'true'
+    uses: ./.github/workflows/reusable-build.yml
+    with:
+      ref: ${{ needs.check.outputs.branch }}
+
+  publish:
+    needs: [check, build]
+    if: needs.build.result == 'success'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          ref: ${{ needs.check.outputs.branch }}
+          fetch-depth: 0
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 24
+      - uses: actions/download-artifact@v5
+        with:
+          name: chromium
+          path: output
+      - name: Sign and publish
+        env:
+          GH_TOKEN: ${{ github.token }}
+          SIGNING_KEY: ${{ secrets.PERSEU_UPDATE_KEY }}
+          VERSION: ${{ needs.check.outputs.version }}
+          RELEASE_REPO: ${{ github.repository }}
+        run: |
+          set -euo pipefail
+          [ -n "$SIGNING_KEY" ] || { echo 'The PERSEU_UPDATE_KEY secret is missing'; exit 1; }
+
+          # The updater refuses anything not newer than what is installed.
+          latest="$(gh release list --repo "$RELEASE_REPO" --exclude-drafts --exclude-pre-releases --limit 1 --json tagName --jq '.[0].tagName // ""' | sed 's/^v//')"
+          if [ -n "$latest" ]; then
+            highest="$(printf '%s\n%s\n' "$latest" "$VERSION" | sort -V | tail -1)"
+            if [ "$VERSION" = "$latest" ] || [ "$highest" != "$VERSION" ]; then
+              echo "$VERSION is not newer than the published $latest"
+              exit 1
+            fi
+          fi
+
+          installers=(output/*installer_x64.exe)
+          [ "${#installers[@]}" -eq 1 ] && [ -f "${installers[0]}" ] || { echo 'Expected one x64 installer'; exit 1; }
+
+          key="$RUNNER_TEMP/perseu-update.pem"
+          trap 'rm -f "$key"' EXIT
+          (umask 077; printf '%s\n' "$SIGNING_KEY" > "$key")
+          PERSEU_RELEASE_REPO="$RELEASE_REPO" PERSEU_UPDATE_KEY="$key" \
+            node flecha/chromium/scripts/publish-windows-update.mjs "${installers[0]}" "$VERSION" --publish
+
+          git push origin HEAD:master
+
+  notify:
+    needs: [check, build, publish]
+    if: failure()
+    runs-on: ubuntu-latest
+    permissions:
+      issues: write
+    steps:
+      - name: Open an issue
+        env:
+          GH_TOKEN: ${{ github.token }}
+          VERSION: ${{ needs.check.outputs.version }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: |
+          gh issue create --repo "$GITHUB_REPOSITORY" \
+            --title "Automatic Perseu build failed${VERSION:+ ($VERSION)}" \
+            --body "Run: $RUN_URL. Nothing was published. A new Chromium can need the Flecha patch ported by hand; after fixing it, run perseu-auto with force."

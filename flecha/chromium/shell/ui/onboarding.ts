@@ -1,26 +1,37 @@
+import { spaceTint } from '../lib/spaceTint';
 import type { IconName } from './icons.js';
 import type { FlechaApi, UiState } from '../../shared/types';
 import { browserDetail, importSummary } from './browserImport.js';
 
 /**
- * The first-run tour, full window: steps on the left, a live miniature Flecha on the right
- * that reacts to what you choose and to the real shortcuts you press. Your first Space is
- * set up for real as you go. It comes back from Help → Welcome to Flecha.
+ * The first-run tour, full window: the questions on the left; on the right the hands artwork,
+ * tinted with your Space's colour, under a card that previews what each answer changes.
+ * Your first Space is set up for real as you go. It comes back from Help → Welcome to Flecha.
  */
 
 type H = (tag: string, props?: Record<string, unknown>, ...children: Array<Node | string | null | undefined>) => HTMLElement;
 type DetectedBrowser = Awaited<ReturnType<FlechaApi['detectBrowsers']>>[number];
 
-const STEPS = ['welcome', 'space', 'import', 'try', 'dev', 'done'] as const;
+const STEPS = ['goal', 'space', 'import', 'try', 'done'] as const;
 type Step = (typeof STEPS)[number];
+const STEP_NAMES: Record<Step, string> = { goal: 'Your Space', space: 'Name and colour', import: 'Import', try: 'Shortcuts', done: 'Default browser' };
+
+/** Starting points for the first Space; the next step fine-tunes it. */
+const PRESETS = [
+  { id: 'work', name: 'Work', emoji: '💼', color: '#c9e3f5', text: 'Mail, docs and meetings.', tabs: ['Inbox · Outlook', 'Q4 planning · Docs', 'Standup notes'] },
+  { id: 'personal', name: 'Personal', emoji: '🏠', color: '#f7dcc0', text: 'Videos, shopping and reading.', tabs: ['YouTube', 'Weekend trip ideas', 'Recipes'] },
+  { id: 'study', name: 'Study', emoji: '📚', color: '#d3ecd5', text: 'Classes, notes and research.', tabs: ['Lecture 4 · Notes', 'Wikipedia', 'Flashcards'] },
+  { id: 'project', name: 'Side project', emoji: '🚀', color: '#e8d6f3', text: 'What you build after hours.', tabs: ['GitHub', 'Figma', 'localhost:5173'] },
+] as const;
 
 const EMOJIS = ['🏠', '💼', '🚀', '🧪', '🛠️', '🎨', '📚', '🧠', '🎮', '🌱', '☕️', '⚡️'];
 const COLORS = ['#cdd9f7', '#c9e3f5', '#cfe8ec', '#d3ecd5', '#f5e7c4', '#f7dcc0', '#f4cfdc', '#e8d6f3'];
+const TAB_HUES = ['#3aa6d9', '#e4572e', '#1f9d5b'];
 
 /** Shortcuts to try in the tour, in order. */
 const CHALLENGES: Array<{ id: string; label: string; done: string }> = [
-  { id: 'newTab', label: 'Open the command bar', done: 'Tabs, history, actions: one box.' },
-  { id: 'toggleSidebar', label: 'Hide the sidebar', done: 'Hover the left edge to bring it back.' },
+  { id: 'newTab', label: 'Open the command bar', done: 'Tabs, history and actions in one box.' },
+  { id: 'toggleSidebar', label: 'Hide the sidebar', done: 'Move to the left edge to bring it back.' },
   { id: 'splitNew', label: 'Split the view', done: 'Or drag any tab onto the page.' },
 ];
 
@@ -32,23 +43,21 @@ const APP_NAMES: Record<string, string> = {
   Edge: 'Microsoft Edge',
   'Microsoft Edge': 'Microsoft Edge',
   Firefox: 'Firefox',
-  Safari: 'Safari',
   Arc: 'Arc',
   Vivaldi: 'Vivaldi',
   Opera: 'Opera',
   Chromium: 'Chromium',
 };
 
-const MARK = `<svg viewBox="0 0 100 100"><rect width="100" height="100" rx="30" fill="#0b2545"/><path d="M50 10 80 76 50 61 20 76Z" fill="#eef2f6" transform="translate(50 50) scale(0.62) rotate(45) translate(-50 -50)"/></svg>`;
-
 export function setupOnboarding(api: FlechaApi, h: H, icon: (name: IconName) => SVGElement) {
   const root = document.getElementById('onboarding')!;
-  let step: Step = 'welcome';
+  let step: Step = 'goal';
   let state: UiState | undefined;
+  let preset: (typeof PRESETS)[number] | undefined;
   let browsers: DetectedBrowser[] | undefined;
   const appIcons = new Map<string, string | undefined>();
   const imported = new Map<string, string>();
-  /** Imports that came over without their cookies, since the keychain said no. */
+  /** Imports that came over without their cookies, since the browser said no. */
   const refused = new Set<string>();
   const importing = new Set<string>();
   const tried = new Set<string>();
@@ -56,95 +65,25 @@ export function setupOnboarding(api: FlechaApi, h: H, icon: (name: IconName) => 
   /** The step the last draw showed; its entrance animation only plays when the step changes. */
   let shownStep: Step | undefined;
 
-  // ---- the live miniature -----------------------------------------------------------
+  const space = () => state?.spaces.find((s) => s.id === state!.activeSpaceId);
+  const keys = (id: string) => state?.shortcuts[id] || '';
 
-  const mockTabs = h(
-    'div',
-    { class: 'mock-tabs' },
-    ...[
-      ['#e4572e', 62],
-      ['#3aa6d9', 78],
-      ['#1f9d5b', 54],
-      ['#6d5bd0', 70],
-    ].map(([color, width], i) =>
-      h('div', { class: `mock-row${i === 0 ? ' active' : ''}` }, h('i', { style: `background:${color}` }), h('b', { style: `width:${width}%` })),
-    ),
-  );
-  const mockServers = h('div', { class: 'mock-servers' });
-  const typed = h('span', { class: 'mock-typed' });
-  const mock = h(
-    'div',
-    { class: 'mock' },
-    h(
-      'div',
-      { class: 'mock-side' },
-      h('div', { class: 'mock-lights' }, h('i'), h('i'), h('i')),
-      h('div', { class: 'mock-url' }, h('b')),
-      mockServers,
-      h('div', { class: 'mock-space' }, h('span', { class: 'mock-emoji' }), h('span', { class: 'mock-name' })),
-      mockTabs,
-    ),
-    h(
-      'div',
-      { class: 'mock-pages' },
-      ...['a', 'b'].map((side) =>
-        h('div', { class: `mock-page ${side}` }, h('div', { class: 'mock-hero' }), h('b', { style: 'width:72%' }), h('b', { style: 'width:88%' }), h('b', { style: 'width:64%' }), h('div', { class: 'mock-cards' }, h('i'), h('i'), h('i'))),
-      ),
-    ),
-    h(
-      'div',
-      { class: 'mock-palette' },
-      h('div', { class: 'mock-input' }, icon('search'), typed, h('i', { class: 'mock-caret' })),
-      h('div', { class: 'mock-results' }, h('b', { class: 'on' }), h('b'), h('b')),
-    ),
-  );
+  // ---- frame, built once so the artwork and progress bar animate on -----------------
 
-  const left = h('section', { class: 'tour-left' });
+  const progressLabel = h('span', { class: 'tour-count' });
   const progress = h('i');
-  const progressBar = h('div', { class: 'tour-progress' }, progress);
-
-  let typingTimer: number | undefined;
-  /** Plays what a shortcut does in the miniature. */
-  function play(command: string) {
-    if (command === 'newTab' || command === 'openLocation') {
-      mock.classList.add('palette');
-      const text = 'flecha.oprimo.dev';
-      let i = 0;
-      typed.textContent = '';
-      clearInterval(typingTimer);
-      typingTimer = window.setInterval(() => {
-        typed.textContent = text.slice(0, ++i);
-        if (i >= text.length) {
-          clearInterval(typingTimer);
-          setTimeout(() => mock.classList.remove('palette'), 900);
-        }
-      }, 55);
-    } else if (command === 'toggleSidebar') {
-      mock.classList.toggle('no-sidebar');
-    } else if (command === 'splitNew') {
-      mock.classList.add('split');
-    }
-  }
-
-  function updateMock() {
-    if (!state) return;
-    const space = state.spaces.find((s) => s.id === state!.activeSpaceId);
-    mock.style.setProperty('--mock-tint', state.tint);
-    mock.querySelector('.mock-emoji')!.textContent = space?.emoji ?? '';
-    mock.querySelector('.mock-name')!.textContent = space?.name ?? '';
-    mockServers.replaceChildren(
-      ...(step === 'dev' ? state.localServers.slice(0, 3) : []).map((s) =>
-        h('div', { class: 'mock-server' }, h('i'), h('span', {}, s.name), h('small', {}, `:${s.port}`)),
-      ),
-    );
-    mock.dataset.step = step;
-  }
+  const left = h('section', { class: 'tour-left' });
+  const stepBody = h('div', { class: 'tour-body' });
+  const footer = h('footer', { class: 'tour-buttons' });
+  const card = h('div', { class: 'tour-card', 'aria-hidden': 'true' });
+  const art = h('img', { class: 'tour-art', src: 'tour-art.png', alt: '', draggable: 'false' });
+  const live = h('p', { class: 'tour-live', 'aria-live': 'polite' });
 
   // ---- steps ---------------------------------------------------------------------
 
   const go = (next: Step) => {
     step = next;
-    mock.classList.remove('palette', 'no-sidebar', 'split');
+    card.classList.remove('palette', 'no-sidebar', 'split');
     if (next === 'try') for (const id of tried) play(id);
     draw();
   };
@@ -158,22 +97,37 @@ export function setupOnboarding(api: FlechaApi, h: H, icon: (name: IconName) => 
     }, 380);
   };
 
-  const keys = (id: string) => state?.shortcuts[id] || '';
-  const space = () => state?.spaces.find((s) => s.id === state!.activeSpaceId);
-
   function heading(kicker: string, title: string, lead: string) {
-    return h('header', { class: 'tour-head' }, h('span', { class: 'tour-kicker' }, kicker), h('h2', {}, title), h('p', { class: 'tour-lead' }, lead));
+    return h('header', { class: 'tour-head' }, h('p', { class: 'tour-kicker' }, kicker), h('h1', {}, title), h('p', { class: 'tour-lead' }, lead));
   }
 
-  function welcome() {
+  function goalStep() {
     return h(
       'div',
-      { class: 'tour-step tour-welcome' },
-      h('h1', {}, 'Your browser,', h('br'), h('em', {}, 'sharpened.')),
+      { class: 'tour-step' },
+      heading('Welcome to Perseu', 'What is your first Space for?', 'Each Space keeps its own tabs. Add more later.'),
       h(
-        'p',
-        { class: 'tour-lead' },
-        'Flecha keeps tabs tidy in Spaces, puts everything behind one command bar, and comes with real tools for the web you build. Two minutes and it’s yours.',
+        'div',
+        { class: 'tour-options', role: 'radiogroup', 'aria-label': 'First Space' },
+        ...PRESETS.map((p) =>
+          h(
+            'button',
+            {
+              class: `tour-option${preset?.id === p.id ? ' on' : ''}`,
+              role: 'radio',
+              'aria-checked': String(preset?.id === p.id),
+              onclick: () => {
+                preset = p;
+                const sp = space();
+                if (sp) api.updateSpace(sp.id, { name: p.name, emoji: p.emoji, color: p.color });
+                draw();
+              },
+            },
+            h('span', { class: 'tour-option-icon', style: `--swatch:${p.color}` }, p.emoji),
+            h('strong', {}, p.name),
+            h('small', {}, p.text),
+          ),
+        ),
       ),
     );
   }
@@ -181,30 +135,44 @@ export function setupOnboarding(api: FlechaApi, h: H, icon: (name: IconName) => 
   function spaceStep() {
     const sp = space();
     if (!sp) return h('div');
-    const name = h('input', { class: 'tour-input', value: sp.name, maxlength: '40', spellcheck: 'false', placeholder: 'Personal, Work, Side project…' }) as HTMLInputElement;
+    const name = h('input', { class: 'tour-input', value: sp.name, maxlength: '40', spellcheck: 'false', placeholder: 'Work, Personal, Side project…' }) as HTMLInputElement;
     name.addEventListener('input', () => name.value.trim() && api.updateSpace(sp.id, { name: name.value }));
     name.addEventListener('keydown', (e) => e.key === 'Enter' && next());
     const theme = state?.theme ?? 'system';
     return h(
       'div',
       { class: 'tour-step' },
-      heading('Your first Space', 'Give it a name and a colour', 'Spaces keep work, personal and side projects apart, each with its own tabs and colour. Make more anytime.'),
-      name,
+      heading('Make it yours', 'Name it and pick its look', 'Its colour tints the sidebar.'),
+      h('label', { class: 'tour-field' }, h('span', { class: 'tour-label' }, 'Name'), name),
+      h('p', { class: 'tour-label' }, 'Icon'),
       h(
         'div',
-        { class: 'tour-emojis' },
-        ...EMOJIS.map((emoji) => h('button', { class: `tour-emoji${sp.emoji === emoji ? ' on' : ''}`, onclick: () => api.updateSpace(sp.id, { emoji }) }, emoji)),
+        { class: 'tour-emojis', role: 'radiogroup', 'aria-label': 'Icon' },
+        ...EMOJIS.map((emoji) =>
+          h('button', { class: `tour-emoji${sp.emoji === emoji ? ' on' : ''}`, role: 'radio', 'aria-checked': String(sp.emoji === emoji), onclick: () => api.updateSpace(sp.id, { emoji }) }, emoji),
+        ),
       ),
+      h('p', { class: 'tour-label' }, 'Colour'),
       h(
         'div',
-        { class: 'tour-swatches' },
-        ...COLORS.map((color) => h('button', { class: `tour-swatch${sp.color === color ? ' on' : ''}`, style: `--swatch:${color}`, onclick: () => api.updateSpace(sp.id, { color }) })),
+        { class: 'tour-swatches', role: 'radiogroup', 'aria-label': 'Colour' },
+        ...COLORS.map((color, i) =>
+          h('button', {
+            class: `tour-swatch${sp.color === color ? ' on' : ''}`,
+            role: 'radio',
+            'aria-checked': String(sp.color === color),
+            'aria-label': `Colour ${i + 1}`,
+            style: `--swatch:${color}`,
+            onclick: () => api.updateSpace(sp.id, { color }),
+          }),
+        ),
       ),
+      h('p', { class: 'tour-label' }, 'Theme'),
       h(
         'div',
-        { class: 'tour-segmented' },
+        { class: 'tour-segmented', role: 'radiogroup', 'aria-label': 'Theme' },
         ...(['system', 'light', 'dark'] as const).map((t) =>
-          h('button', { class: theme === t ? 'on' : '', onclick: () => api.setPreferences({ theme: t }) }, t === 'system' ? 'Auto' : t === 'light' ? 'Light' : 'Dark'),
+          h('button', { class: theme === t ? 'on' : '', role: 'radio', 'aria-checked': String(theme === t), onclick: () => api.setPreferences({ theme: t }) }, t === 'system' ? 'Match Windows' : t === 'light' ? 'Light' : 'Dark'),
         ),
       ),
     );
@@ -248,28 +216,28 @@ export function setupOnboarding(api: FlechaApi, h: H, icon: (name: IconName) => 
     const list = !browsers
       ? h('div', { class: 'tour-note' }, h('span', { class: 'tour-spinner' }), 'Looking for your browsers…')
       : !browsers.length
-        ? h('div', { class: 'tour-note' }, 'No other browsers with data on this Mac. You can import later from Settings › Import.')
+        ? h('div', { class: 'tour-note' }, 'No other browsers found on this computer. You can import later from Settings.')
         : h(
             'div',
-            { class: 'tour-browsers' },
+            { class: 'tour-rows' },
             ...browsers.map((b) => {
               const done = imported.get(b.id);
               const busy = importing.has(b.id);
               return h(
                 'div',
-                { class: `tour-browser${done ? ' done' : ''}${busy ? ' busy' : ''}` },
+                { class: `tour-row${done ? ' done' : ''}` },
                 browserIcon(b),
-                h('span', { class: 'tour-browser-text' }, h('strong', {}, b.name), h('small', {}, done ?? browserDetail(b))),
+                h('span', { class: 'tour-row-text' }, h('strong', {}, b.name), h('small', {}, done ?? browserDetail(b))),
                 done && !refused.has(b.id)
-                  ? h('span', { class: 'tour-done' }, icon('check'))
-                  : h('button', { class: 'tour-ghost', disabled: busy, onclick: () => runImport(b) }, busy ? 'Importing…' : refused.has(b.id) ? 'Try Again' : 'Import'),
+                  ? h('span', { class: 'tour-done', role: 'img', 'aria-label': 'Imported' }, icon('check'))
+                  : h('button', { class: 'tour-ghost', disabled: busy, 'aria-label': `Import from ${b.name}`, onclick: () => runImport(b) }, busy ? 'Importing…' : refused.has(b.id) ? 'Try again' : 'Import'),
               );
             }),
           );
     return h(
       'div',
       { class: 'tour-step' },
-      heading('Move in', 'Bring your stuff over', 'Bookmarks become pinned tabs in a Space of their own; history makes the command bar smart from day one. Passwords stay put.'),
+      heading('Move in', 'Bring your stuff over', 'Bookmarks become pinned tabs. Passwords stay where they are.'),
       list,
     );
   }
@@ -279,43 +247,29 @@ export function setupOnboarding(api: FlechaApi, h: H, icon: (name: IconName) => 
     return h(
       'div',
       { class: 'tour-step' },
-      heading('Muscle memory', 'Try it for real', 'Press the keys. The preview on the right does what Flecha does. (You can change every shortcut in Settings.)'),
+      heading('Shortcuts', 'Try them for real', 'Press the keys and watch the preview. Change any shortcut in Settings.'),
       h(
         'div',
-        { class: 'tour-challenges' },
+        { class: 'tour-rows' },
         ...CHALLENGES.map((c) => {
           const done = tried.has(c.id);
           return h(
             'button',
-            { class: `tour-challenge${done ? ' done' : ''}${c === current ? ' current' : ''}`, onclick: () => tourKey(c.id) },
+            { class: `tour-row tour-challenge${done ? ' done' : ''}${c === current ? ' current' : ''}`, onclick: () => tourKey(c.id) },
             h('kbd', { class: 'tour-key' }, keys(c.id) || '—'),
-            h('span', { class: 'tour-challenge-text' }, h('strong', {}, c.label), h('small', {}, done ? c.done : c === current ? 'Press the keys now' : '')),
-            done ? h('span', { class: 'tour-done' }, icon('check')) : null,
+            h('span', { class: 'tour-row-text' }, h('strong', {}, c.label), h('small', {}, done ? c.done : c === current ? 'Press the keys now' : 'Next up')),
+            done ? h('span', { class: 'tour-done', role: 'img', 'aria-label': 'Done' }, icon('check')) : null,
           );
         }),
       ),
     );
   }
 
-  function devStep() {
-    const servers = state?.localServers ?? [];
-    return h(
-      'div',
-      { class: 'tour-step' },
-      heading('For developers', 'Built for the web you build', servers.length ? `Flecha already found ${servers.length} dev server${servers.length === 1 ? '' : 's'} running on this Mac. They live at the top of the sidebar.` : 'Start a dev server and it shows up at the top of the sidebar, with its console errors.'),
-      h(
-        'div',
-        { class: 'tour-features' },
-        feature('sparkle', 'Coding agents', 'Claude Code and Cursor can read, click and debug your tabs over MCP.', h('button', { class: 'tour-ghost', onclick: () => api.openSettings('agents') }, 'Connect')),
-        feature('zap', 'Boosts', 'Your own TypeScript and CSS for any site, edited right in Flecha.', h('kbd', {}, keys('editBoost'))),
-        feature('phone', 'Responsive view', 'Desktop and phone side by side, following each other.', h('kbd', {}, keys('responsive'))),
-        feature('code', 'Environments', 'Local → staging → prod for the same page, with a badge so prod never looks safe.', h('kbd', {}, keys('nextEnvironment'))),
-      ),
-    );
-  }
-
-  function feature(name: IconName, title: string, text: string, action: HTMLElement) {
-    return h('div', { class: 'tour-feature' }, h('span', { class: 'tour-feature-icon' }, icon(name)), h('span', { class: 'tour-feature-text' }, h('strong', {}, title), h('small', {}, text)), action);
+  function toggleRow(name: IconName, title: string, text: string, on: boolean, change: (on: boolean) => void) {
+    const input = h('input', { type: 'checkbox', class: 'switch' }) as HTMLInputElement;
+    input.checked = on;
+    input.onchange = () => change(input.checked);
+    return h('label', { class: `tour-row${on ? ' on' : ''}` }, h('span', { class: 'tour-row-icon' }, icon(name)), h('span', { class: 'tour-row-text' }, h('strong', {}, title), h('small', {}, text)), input);
   }
 
   function doneStep() {
@@ -323,53 +277,143 @@ export function setupOnboarding(api: FlechaApi, h: H, icon: (name: IconName) => 
     return h(
       'div',
       { class: 'tour-step' },
-      heading('Last thing', d?.isDefault ? 'You’re all set' : 'Make it the default?', d?.isDefault ? 'Links from Slack, Mail and your terminal open in Flecha.' : 'So links from Slack, Mail and your terminal open here instead of somewhere else.'),
+      heading('Last thing', d?.isDefault ? 'You’re all set' : 'Make Perseu your default?', d?.isDefault ? 'Links from Discord, Outlook and your terminal open in Perseu.' : 'Then links from Discord, Outlook and your terminal open here instead of in another browser.'),
       d?.isDefault
-        ? h('div', { class: 'tour-note ok' }, h('span', { class: 'tour-done' }, icon('check')), 'Flecha is your default browser')
+        ? h('div', { class: 'tour-note ok' }, h('span', { class: 'tour-done' }, icon('check')), 'Perseu is your default browser')
         : d?.canSet
-          ? h('button', { class: 'tour-ghost big', onclick: () => api.makeDefaultBrowser() }, icon('link'), 'Make Flecha the default browser')
+          ? h('button', { class: 'tour-ghost big', onclick: () => api.makeDefaultBrowser() }, icon('link'), 'Make Perseu the default browser')
           : null,
-      h('div', { class: 'tour-tips' }, h('span', {}, h('kbd', {}, keys('newTab')), ' Command bar'), h('span', {}, h('kbd', {}, keys('shortcuts')), ' All shortcuts'), h('span', {}, h('kbd', {}, keys('settings')), ' Settings')),
     );
   }
 
   function primaryLabel() {
-    if (step === 'welcome') return 'Let’s go';
-    if (step === 'import') return imported.size ? 'Continue' : 'Skip';
-    if (step === 'try') return tried.size === CHALLENGES.length ? 'Nice. Continue' : 'Skip';
     if (step === 'done') return 'Start browsing';
-    return 'Continue';
+    const skip = (step === 'goal' && !preset) || (step === 'import' && !imported.size) || (step === 'try' && tried.size < CHALLENGES.length);
+    // Name where the button goes, not just "Continue".
+    return `${skip ? 'Skip to' : 'Next:'} ${STEP_NAMES[STEPS[STEPS.indexOf(step) + 1]].toLowerCase()}`;
   }
 
+  // ---- the preview card ---------------------------------------------------------
+
+  let typingTimer: number | undefined;
+  /** Plays what a shortcut does in the card. */
+  function play(command: string) {
+    if (command === 'newTab' || command === 'openLocation') {
+      card.classList.add('palette');
+      const text = 'github.com/flecha';
+      let i = 0;
+      clearInterval(typingTimer);
+      typingTimer = window.setInterval(() => {
+        const typed = card.querySelector('.pv-typed');
+        if (typed) typed.textContent = text.slice(0, ++i);
+        else i = text.length;
+        if (i >= text.length) {
+          clearInterval(typingTimer);
+          setTimeout(() => card.classList.remove('palette'), 900);
+        }
+      }, 55);
+    } else if (command === 'toggleSidebar') {
+      card.classList.toggle('no-sidebar');
+    } else if (command === 'splitNew') {
+      card.classList.add('split');
+    }
+  }
+
+  function note(glyph: IconName | { emoji: string }, title: string, text: string) {
+    return h(
+      'div',
+      { class: 'pv-note' },
+      h('p', { class: 'pv-note-title' }, h('span', { class: 'pv-note-icon' }, typeof glyph === 'string' ? icon(glyph) : glyph.emoji), h('span', { class: 'pv-clip' }, title)),
+      h('p', { class: 'pv-note-text' }, text),
+    );
+  }
+
+  function notes() {
+    const sp = space();
+    const commandKeys = keys('newTab') || 'Ctrl+T';
+    switch (step) {
+      case 'goal':
+        return preset
+          ? [note({ emoji: preset.emoji }, `${preset.name} Space`, 'Its own tabs, pins and colour.')]
+          : [note('space', 'One Space to start', 'Pick what it’s for on the left.')];
+      case 'space':
+        return [
+          note(sp?.emoji ? { emoji: sp.emoji } : 'space', sp?.name || 'Your Space', 'Its colour tints the sidebar.'),
+          note('palette', state?.theme === 'dark' ? 'Dark theme' : state?.theme === 'light' ? 'Light theme' : 'Matches Windows', 'Light or dark, as you chose.'),
+        ];
+      case 'import': {
+        const done = [...imported.entries()].map(([id, summary]) => note('import', browsers?.find((b) => b.id === id)?.name ?? 'Imported', summary));
+        return done.length ? done.slice(0, 2) : [note('import', 'Nothing imported yet', 'You can also import later from Settings.')];
+      }
+      case 'try': {
+        const done = CHALLENGES.filter((c) => tried.has(c.id)).map((c) => note('keyboard', c.label, c.done));
+        return done.length ? done.slice(-2) : [note('keyboard', `Press ${commandKeys}`, 'The preview reacts to the real keys.')];
+      }
+      case 'done':
+        return [
+          state?.defaultBrowser.isDefault ? note('link', 'Default browser', 'Links from other apps open here.') : note('link', 'Links from other apps', 'Still open in your old browser.'),
+          note('search', `${commandKeys} for anything`, 'Tabs, history and actions in one box.'),
+        ];
+    }
+  }
+
+  function drawCard() {
+    const sp = space();
+    const tabs = preset?.tabs ?? ['New Tab', 'Search results', 'Saved for later'];
+    const importedFrom = [...imported.keys()].map((id) => browsers?.find((b) => b.id === id)?.name).find(Boolean);
+    card.replaceChildren(
+      h('p', { class: 'pv-label' }, 'Your sidebar'),
+      h(
+        'div',
+        { class: 'pv-grid' },
+        h(
+          'div',
+          { class: 'pv-side' },
+          h('p', { class: 'pv-space' }, h('span', { class: 'pv-emoji' }, sp?.emoji || '•'), h('span', { class: 'pv-clip' }, sp?.name || 'Space')),
+          importedFrom ? h('p', { class: 'pv-tab' }, h('span', { class: 'pv-folder' }, icon('folder')), h('span', { class: 'pv-clip' }, 'Bookmarks')) : null,
+          ...tabs.map((title, i) => h('p', { class: `pv-tab${i === 0 ? ' on' : ''}` }, h('i', { style: `background:${TAB_HUES[i % TAB_HUES.length]}` }), h('span', { class: 'pv-clip' }, title))),
+        ),
+        h('div', { class: 'pv-notes' }, ...notes()),
+      ),
+      h('div', { class: 'pv-palette' }, icon('search'), h('span', { class: 'pv-typed' }), h('i', { class: 'pv-caret' })),
+    );
+  }
+
+  // ---- draw ----------------------------------------------------------------------
+
   function draw() {
-    const body = { welcome, space: spaceStep, import: importStep, try: tryStep, dev: devStep, done: doneStep }[step]();
-    body.classList.toggle('enter', shownStep !== step);
+    const body = { goal: goalStep, space: spaceStep, import: importStep, try: tryStep, done: doneStep }[step]();
+    const changed = shownStep !== step;
+    body.classList.toggle('enter', changed);
     shownStep = step;
     const index = STEPS.indexOf(step);
     const focused = document.activeElement as HTMLElement | null;
     const keepCaret = focused?.classList.contains('tour-input') ? (focused as HTMLInputElement).selectionStart : null;
-    const brand = h('div', { class: 'tour-brand' }, h('span', { class: 'tour-mark' }), h('span', {}, 'Flecha'));
-    brand.firstElementChild!.innerHTML = MARK;
-    // The frame (grid, miniature, progress bar) is built once so its animations run on;
-    // only the step's own content is redrawn.
-    if (!root.firstChild) root.append(h('div', { class: 'tour-grid' }), h('div', { class: 'tour' }, left, h('section', { class: 'tour-stage' }, mock)));
-    progress.style.width = `${((index + 1) / STEPS.length) * 100}%`;
-    left.replaceChildren(
-      h('div', { class: 'tour-top' }, brand, step === 'done' ? null : h('button', { class: 'tour-skip', onclick: finish }, 'Skip tour')),
-      body,
-      h(
-        'footer',
-        { class: 'tour-footer' },
-        progressBar,
+    if (!root.firstChild) {
+      left.append(
         h(
           'div',
-          { class: 'tour-buttons' },
-          index ? h('button', { class: 'tour-back', onclick: back }, 'Back') : h('span'),
-          h('button', { class: 'tour-primary', onclick: step === 'done' ? finish : next }, primaryLabel(), h('kbd', {}, '↩')),
+          { class: 'tour-top' },
+          h('div', { class: 'tour-progress-wrap' }, progressLabel, h('div', { class: 'tour-progress' }, progress)),
+          h('button', { class: 'tour-skip', onclick: finish }, 'Skip tour'),
         ),
-      ),
+        stepBody,
+        footer,
+        live,
+      );
+      root.append(h('div', { class: 'tour', role: 'dialog', 'aria-modal': 'true', 'aria-label': 'Welcome to Perseu' }, left, h('section', { class: 'tour-stage' }, art, h('div', { class: 'tour-tint' }), card)));
+    }
+    progressLabel.textContent = `${index + 1} of ${STEPS.length} · ${STEP_NAMES[step]}`;
+    progress.style.width = `${((index + 1) / STEPS.length) * 100}%`;
+    root.querySelector<HTMLElement>('.tour-skip')!.hidden = step === 'done';
+    root.style.setProperty('--tour-tint', spaceTint(space()?.color ?? COLORS[0], false));
+    stepBody.replaceChildren(body);
+    footer.replaceChildren(
+      index ? h('button', { class: 'tour-back', onclick: back }, icon('arrowLeft'), 'Back') : h('span'),
+      h('button', { class: 'tour-primary', onclick: step === 'done' ? finish : next }, primaryLabel()),
     );
-    updateMock();
+    drawCard();
+    if (changed) live.textContent = `Step ${index + 1} of ${STEPS.length}: ${body.querySelector('h1')?.textContent ?? ''}`;
     // Redrawing replaces the name field; keep typing where you were.
     if (keepCaret !== null) {
       const input = root.querySelector<HTMLInputElement>('.tour-input');
@@ -390,7 +434,10 @@ export function setupOnboarding(api: FlechaApi, h: H, icon: (name: IconName) => 
 
   api.onTourKey(tourKey);
   document.addEventListener('keydown', (e) => {
-    if (root.hidden || e.key !== 'Enter' || (e.target as HTMLElement).tagName === 'INPUT') return;
+    if (root.hidden || e.key !== 'Enter') return;
+    const target = e.target as HTMLElement;
+    // Enter on a focused control does that control's job; elsewhere it moves on.
+    if (target.tagName === 'INPUT' || (target.tagName === 'BUTTON' && root.contains(target))) return;
     e.preventDefault();
     root.querySelector<HTMLButtonElement>('.tour-primary')?.click();
   });
@@ -399,17 +446,15 @@ export function setupOnboarding(api: FlechaApi, h: H, icon: (name: IconName) => 
     state = s;
     const show = !s.onboarded;
     if (show && root.hidden) {
-      step = 'welcome';
+      step = 'goal';
       tried.clear();
     }
     root.hidden = !show;
     if (!show) return;
     // Only what the steps show; other updates (pages loading) would restart the animations.
     const sp = s.spaces.find((x) => x.id === s.activeSpaceId);
-    // The name isn't in it: the field already shows what you type, and the miniature follows below.
-    const key = JSON.stringify([s.theme, sp?.emoji, sp?.color, s.defaultBrowser, s.shortcuts, s.localServers.length]);
+    const key = JSON.stringify([s.theme, sp?.emoji, sp?.color, sp?.name, s.adBlock, s.defaultBrowser, s.shortcuts]);
     if (key !== drawn || !root.firstChild) draw();
-    else updateMock();
     drawn = key;
   };
 }

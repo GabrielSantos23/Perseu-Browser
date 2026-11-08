@@ -1,8 +1,10 @@
 import { devSuggestions } from './devCommands.js';
 import { ICONS, type IconName } from './icons.js';
 import { setupOnboarding } from './onboarding.js';
+import { spaceTint, DEFAULT_SPACE_COLOR } from '../lib/spaceTint';
+import { isDark, luminance } from '../lib/topBar';
 import { SPACE_COLORS, SPACE_EMOJIS } from './spaceChoices.js';
-import type { DownloadInfo, DropTarget, ExtensionsView, FlechaApi, HistoryEntry, PaletteMode, PeekState, PinnedNode, Space, TabInfo, UiState } from '../../shared/types';
+import type { DownloadInfo, DropTarget, ExtensionsView, FlechaApi, HistoryEntry, NowPlaying, PaletteMode, PeekState, PinnedNode, Space, TabInfo, UiState } from '../../shared/types';
 
 declare global {
   interface Window {
@@ -53,7 +55,7 @@ for (const el of document.querySelectorAll<HTMLElement>('i[data-icon]')) el.repl
 function host(url: string) {
   try {
     // Flecha's own pages (Boosts, in the Chromium build) are named, not shown as an extension id.
-    if (url.startsWith(location.origin + '/') && location.protocol === 'chrome-extension:') return 'Flecha';
+    if (url.startsWith(location.origin + '/') && location.protocol === 'chrome-extension:') return 'Perseu';
     return new URL(url).host.replace(/^www\./, '');
   } catch {
     return url;
@@ -68,6 +70,8 @@ function hueFor(text: string) {
 }
 
 function favicon(tab: TabInfo) {
+  // A blank tab shows the home screen, so it carries Perseu's mark (logo.png).
+  if (tab.url === 'about:blank') return h('span', { class: 'favicon perseu-mark' });
   const site = host(tab.url);
   const letter = () =>
     h('span', { class: 'favicon letter', style: `--hue: ${hueFor(site)}` }, (site.replace(/^[^a-z0-9]+/i, '')[0] ?? '•').toUpperCase());
@@ -79,15 +83,25 @@ function favicon(tab: TabInfo) {
   }
   // The page's own icon once it has loaded, else the icon Flecha fetched for the site.
   const cached = state?.faviconUrl ? state.faviconUrl.replace('%s', encodeURIComponent(tab.url)) : `favicon://${hostname}`;
-  const src = tab.favicon || (state?.faviconHosts.includes(hostname) ? cached : state?.faviconUrls?.[hostname]);
+  const own = tab.favicon && !blockedIcons.has(tab.favicon) ? tab.favicon : undefined;
+  const src = own || (tab.favicon || state?.faviconHosts.includes(hostname) ? cached : state?.faviconUrls?.[hostname]);
   if (!src) return letter();
   // Decorative: the row or tile around it carries the name.
   const img = h('img', { class: 'favicon', src, draggable: 'false', alt: '' }) as HTMLImageElement;
-  img.onerror = () => img.replaceWith(letter());
+  img.onerror = () => {
+    if (own && img.getAttribute('src') === own) {
+      blockedIcons.add(own);
+      img.src = cached;
+    } else img.replaceWith(letter());
+  };
   return img;
 }
 
-const HAS_TOP_BAR = false;
+/** Icons a site won't serve to other origins (WhatsApp's CORP header); Chromium's own copy stands in. */
+const blockedIcons = new Set<string>();
+
+// The bar above the page (topbar.ts) needs the frame patch (flecha_frame_view.cc).
+const HAS_TOP_BAR = typeof chrome !== 'undefined' && typeof chrome.flechaPrivate?.setFrame === 'function';
 document.documentElement.dataset.os = /Mac/.test(navigator.platform) ? 'mac' : 'other';
 
 /** A favorite's tile takes on its icon's main colour, as Arc does; cached per icon. */
@@ -136,9 +150,13 @@ function render(s: UiState) {
   const space = s.spaces.find((sp) => sp.id === s.activeSpaceId) ?? s.spaces[0];
   const active = space.activeTabId ? s.tabs[space.activeTabId] : undefined;
   document.documentElement.style.setProperty('--space-color', s.tint);
+  // The sidebar's text follows its own colour, which can be any colour, not the theme.
+  $('sidebar').dataset.ink = isDark(s.tint) ? 'light' : 'dark';
+  $('sidebar').toggleAttribute('data-bright', luminance(s.tint) > 0.85);
 
   ($('btn-back') as HTMLButtonElement).disabled = !s.nav.canGoBack;
   ($('btn-forward') as HTMLButtonElement).disabled = !s.nav.canGoForward;
+  $('btn-reload').querySelector('path')?.setAttribute('d', ICONS[s.nav.loading ? 'close' : 'reload']);
 
   document.body.dataset.sidebar = s.sidebarMode;
   // shortcut: the bar above the page needs a frame patch that isn't built yet, so the address stays in the sidebar until then.
@@ -150,7 +168,6 @@ function render(s: UiState) {
     if (el.tagName === 'KBD') {
       el.textContent = keys;
       el.hidden = !keys;
-      if (el.parentElement?.parentElement?.classList.contains('empty-hints')) el.parentElement.hidden = !keys;
     } else if (keys) el.dataset.kbd = keys;
     else delete el.dataset.kbd;
   }
@@ -162,13 +179,13 @@ function render(s: UiState) {
   renderEmptyState(s, space, surface === 'newtab' || (!active && surface !== 'panel'));
 
   $('favorites').replaceChildren(
-    ...s.favorites
+    ...space.favorites
       .map((id) => s.tabs[id])
       .filter(Boolean)
       .map((tab) => {
         const active = tab.id === space.activeTabId;
         const img = favicon(tab);
-        const el = h('button', { class: `fav${active ? ' active' : ''}`, title: tabTitle(tab), 'aria-label': tabTitle(tab), 'aria-current': active ? 'page' : undefined }, img);
+        const el = h('button', { class: `fav${active ? ' active' : ''}`, title: tabTitle(tab), 'aria-label': tabTitle(tab), 'aria-current': active ? 'page' : undefined }, img, audioBadge(tab));
         tintFromIcon(el, img);
         wireTab(el, tab, { zone: 'favorites', beforeTabId: tab.id });
         return el;
@@ -197,10 +214,9 @@ function render(s: UiState) {
         'button',
         {
           class: `space-dot${sp.id === space.id ? ' active' : ''}`,
-          title: sp.name,
+          dataset: { tip: sp.name },
           'aria-label': sp.name,
           'aria-current': sp.id === space.id ? 'true' : undefined,
-          dataset: { tipSide: 'right' },
           onclick: () => api.switchSpace(sp.id),
           oncontextmenu: (e: Event) => {
             e.preventDefault();
@@ -213,63 +229,21 @@ function render(s: UiState) {
   );
 
   if (!palette.hidden) updatePalette();
+  if (!archivePanel.hidden) renderArchive();
+  renderExtensions();
   if (!spaceEditor.hidden) renderSpaceEditor();
   if (!sitePanel.hidden) renderSitePanel();
 }
 
-/** What a blank Space offers: search, the sites you go back to most, and your dev servers. */
-let topSitesFetched = 0;
-let topSites: HistoryEntry[] = [];
+/** The home screen of an empty Space (and of a new tab): the input, nothing else. */
 function renderEmptyState(s: UiState, space: Space, show: boolean) {
   const empty = $('empty-state');
   const wasHidden = empty.hidden;
   empty.hidden = !show;
   if (!show) return;
-  const hour = new Date().getHours();
-  $('empty-title').textContent = hour < 5 ? 'Up late?' : hour < 12 ? 'Good morning' : hour < 18 ? 'Good afternoon' : 'Good evening';
-  $('empty-space').replaceChildren(h('span', { class: 'empty-space-emoji' }, space.emoji ?? ''), h('span', {}, space.name));
-  // History changes as you browse, so the tiles are fetched each time the page becomes empty.
-  if (wasHidden || Date.now() - topSitesFetched > 60_000) {
-    topSitesFetched = Date.now();
-    api.topSites().then((sites) => {
-      topSites = sites;
-      if (state) render(state);
-    });
-  }
-  // Drawn on every update so icons appear as they are fetched.
-  $('empty-top').hidden = !topSites.length;
-  $('empty-top-sites').replaceChildren(
-        ...topSites.map((site) =>
-          h(
-            'button',
-            { class: 'top-site', title: site.url, onclick: () => api.newTab(site.url) },
-            h('span', { class: 'top-site-icon' }, favicon({ id: '', url: site.url, title: '', lastActive: 0 })),
-            h('span', { class: 'top-site-name' }, siteName(site)),
-          ),
-        ),
-  );
-  $('empty-local').hidden = !s.localServers.length;
-  $('empty-local-list').replaceChildren(
-    ...s.localServers.map((server) =>
-      h(
-        'button',
-        { class: 'local-chip', title: server.url, onclick: () => api.newTab(server.url) },
-        h('span', { class: 'live-dot' }),
-        h('span', {}, server.name),
-        h('span', { class: 'port' }, `:${server.port}`),
-      ),
-    ),
-  );
-}
-
-/** A short name for a tile: the site's own name from its title when it has one, else the host. */
-function siteName(entry: HistoryEntry) {
-  const full = host(entry.url);
-  const site = full.replace(/\.(com|org|net|io|dev|app|co)(\.[a-z]{2})?$/, '');
-  const parts = entry.title.split(/\s+[-|–—·:]\s+/).map((p) => p.trim()).filter(Boolean);
-  const named = parts.find((p) => p.length <= 18 && p.toLowerCase().replace(/\s/g, '').includes(site.split('.').pop()!.toLowerCase()));
-  // A bare domain reads as a name ("X", "Figma"); hosts with ports stay as they are.
-  return named ?? (site === full ? site : site[0].toUpperCase() + site.slice(1));
+  $('empty-title').textContent = `New tab in ${space.name}`;
+  // Typing can start straight away, as in a new tab's address bar.
+  if (wasHidden) requestAnimationFrame(() => $('home-input').focus());
 }
 
 /** Host, a padlock or code icon for the kind of connection, and the environment badge. */
@@ -282,7 +256,7 @@ function renderUrlbar(s: UiState, active: TabInfo | undefined) {
   $('urlbar-text').textContent = url ? host(url) : 'Search or enter URL';
   $('urlbar').classList.toggle('empty', !url);
   $('urlbar-env').replaceChildren(
-    ...(s.environment ? [h('span', { class: `env-badge ${s.environment.tone}`, title: `${s.environment.name} · ⌥⌘E to switch` }, s.environment.label)] : []),
+    ...(s.environment ? [h('span', { class: `env-badge ${s.environment.tone}`, title: `${s.environment.name} · Ctrl+Alt+E to switch` }, s.environment.label)] : []),
   );
 }
 
@@ -420,6 +394,25 @@ function todayRows(s: UiState, space: Space): HTMLElement[] {
   return rows;
 }
 
+/** Sound from a pinned tab or favorite, on its icon; a click mutes it. */
+function audioBadge(tab: TabInfo) {
+  if (!tab.audible && !tab.muted) return null;
+  const label = tab.muted ? 'Unmute' : 'Mute';
+  return h(
+    'span',
+    {
+      class: 'audio-badge',
+      title: label,
+      'aria-label': label,
+      onclick: (e: Event) => {
+        e.stopPropagation();
+        api.toggleMute(tab.id);
+      },
+    },
+    icon(tab.muted ? 'muted' : 'volume'),
+  );
+}
+
 function tabRow(tab: TabInfo, space: Space, target: DropTarget) {
   const close = h(
     'span',
@@ -442,9 +435,9 @@ function tabRow(tab: TabInfo, space: Space, target: DropTarget) {
       }`,
       'aria-current': tab.id === space.activeTabId ? 'page' : undefined,
     },
-    favicon(tab),
+    target.zone === 'pinned' ? h('span', { class: 'icon-stack' }, favicon(tab), audioBadge(tab)) : favicon(tab),
     h('span', { class: 'title' }, tabTitle(tab)),
-    tab.audible || tab.muted
+    target.zone !== 'pinned' && (tab.audible || tab.muted)
       ? h(
           'span',
           {
@@ -520,6 +513,7 @@ function renameTab(tabId: string) {
 
 function wireTab(el: HTMLElement, tab: TabInfo, target: DropTarget) {
   el.dataset.tabId = tab.id;
+  el.classList.toggle('asleep', !state?.liveTabs.includes(tab.id));
   el.draggable = true;
   el.addEventListener('click', () => api.activate(tab.id));
   el.addEventListener('auxclick', (e) => e.button === 1 && api.close(tab.id));
@@ -583,66 +577,82 @@ function editInline(el: HTMLElement, current: string, commit: (value: string) =>
 // ---- site panel (the sliders button in the address bar) ------------------------------
 
 const sitePanel = $('site-panel');
-const SITE_PERMISSIONS: Array<[string, string]> = [
-  ['geolocation', 'Location'],
-  ['media', 'Camera & microphone'],
-  ['notifications', 'Notifications'],
-  ['clipboard-read', 'Clipboard'],
-];
+// Directly in the page: the sidebar it opens from may be collapsed, and it hangs from the top bar too.
+document.body.append(sitePanel);
+/** The button the panel hangs from: the sidebar's sliders, or the title bar's. */
+let siteAnchor: HTMLElement | undefined;
 
 function activeTab() {
   const space = state?.spaces.find((s) => s.id === state!.activeSpaceId);
   return space?.activeTabId ? state?.tabs[space.activeTabId] : undefined;
 }
 
-function toggleSitePanel(open = sitePanel.hidden) {
+function toggleSitePanel(open = sitePanel.hidden, anchor: HTMLElement = siteAnchor ?? $('btn-site')) {
+  const wasOpen = !sitePanel.hidden;
   sitePanel.hidden = !open || !activeTab();
-  if (!sitePanel.hidden) {
-    spaceEditor.hidden = true;
-    downloadsPanel.hidden = true;
-    renderSitePanel();
+  siteAnchor?.setAttribute('aria-expanded', 'false');
+  // Out in the title bar the panel is beyond the sidebar strip, so the frame covers the window.
+  const outside = (el: HTMLElement) => framedWindow && el.getBoundingClientRect().left >= $('sidebar').getBoundingClientRect().right;
+  if (sitePanel.hidden) {
+    if (wasOpen && siteAnchor && outside(siteAnchor)) api.setOverlay?.('site-panel', false);
+    siteAnchor = undefined;
+    return;
   }
+  spaceEditor.hidden = true;
+  downloadsPanel.hidden = true;
+  archivePanel.hidden = true;
+  if (siteAnchor !== anchor && outside(anchor)) api.setOverlay?.('site-panel', true);
+  siteAnchor = anchor;
+  anchor.setAttribute('aria-expanded', 'true');
+  renderSitePanel();
+  placeSitePanel(anchor);
+}
+
+/** Centred under the button, kept inside the window; the arrow points at the button. */
+function placeSitePanel(anchor: HTMLElement) {
+  const box = anchor.getBoundingClientRect();
+  const width = sitePanel.offsetWidth;
+  const left = Math.min(Math.max(8, box.left + box.width / 2 - width / 2), innerWidth - width - 8);
+  sitePanel.style.left = `${Math.round(left)}px`;
+  sitePanel.style.top = `${Math.round(box.bottom + 10)}px`;
+  sitePanel.style.setProperty('--arrow-x', `${Math.round(box.left + box.width / 2 - left)}px`);
+}
+
+// Opened from the top bar, the frame only grows over the window after the panel is up.
+window.addEventListener('resize', () => !sitePanel.hidden && siteAnchor && placeSitePanel(siteAnchor));
+
+/** The page's origin, or '' for pages that aren't on the web (new tab, settings). */
+function siteOrigin(url: string) {
+  return /^https?:\/\//.test(url) ? new URL(url).origin : '';
 }
 
 function renderSitePanel() {
   const tab = activeTab();
   if (!tab || !state) return toggleSitePanel(false);
-  let origin = '';
-  try {
-    origin = new URL(tab.url).origin;
-  } catch {
-    // Not a web page.
-  }
-  $('site-favicon').replaceChildren(favicon(tab));
-  $('site-host').textContent = host(tab.url);
-  $('site-security').textContent = isDevUrl(tab.url)
-    ? 'Local development server'
-    : tab.url.startsWith('https:')
-      ? 'Connection is secure'
-      : tab.url.startsWith('http:')
-        ? 'Connection is not secure'
-        : 'Not a web page';
-  $('site-security').className = tab.url.startsWith('http:') && !isDevUrl(tab.url) ? 'insecure' : '';
-
-  const saved = state.sitePermissions?.[origin] ?? {};
-  $('site-permissions').replaceChildren(
-    ...SITE_PERMISSIONS.map(([permission, label]) => {
-      const select = h('select', { class: 'mini-select', 'aria-label': label }) as HTMLSelectElement;
-      select.append(new Option('Ask', 'ask'), new Option('Allow', 'allow'), new Option('Block', 'block'));
-      select.value = saved[permission] ?? 'ask';
-      select.addEventListener('change', () => api.setSitePermission(origin, permission, select.value as 'allow' | 'block' | 'ask'));
-      return h('label', { class: 'site-row' }, h('span', {}, label), select);
-    }),
-  );
+  const origin = siteOrigin(tab.url);
+  const secure = tab.url.startsWith('https:');
+  const local = isDevUrl(tab.url);
+  const chip = $('site-security');
+  chip.hidden = !origin;
+  chip.className = `site-chip${!secure && !local ? ' insecure' : ''}`;
+  chip.replaceChildren(icon(secure || local ? 'lock' : 'unlocked'), h('span', {}, local ? 'Local' : secure ? 'Secure' : 'Not Secure'));
+  $<HTMLButtonElement>('site-share').disabled = !origin;
+  // Zoom only shows once the page is zoomed, as in Arc; Ctrl + and Ctrl − still work.
+  $('site-zoom').hidden = state.nav.zoom === 100;
   $('zoom-reset').textContent = `${state.nav.zoom}%`;
-  for (const id of ['site-copy', 'site-shot', 'site-boost', 'site-devtools', 'site-clear', 'zoom-in', 'zoom-out', 'zoom-reset']) {
-    ($(id) as HTMLButtonElement).disabled = !origin;
-  }
+  const pip = $('site-autopip');
+  if (!origin || !api.getAutoPip) pip.hidden = true;
+  else
+    void api.getAutoPip(tab.url).then((allowed) => {
+      pip.hidden = allowed === undefined;
+      $<HTMLInputElement>('site-autopip-toggle').checked = !!allowed;
+    });
 }
 
 // ---- extensions ---------------------------------------------------------------
 
 const EXTENSION_DRAG = 'application/x-flecha-extension';
+const WEB_STORE = 'https://chromewebstore.google.com/';
 const pageHasExtensions = 'frame' in document.documentElement.dataset && !('incognito' in document.documentElement.dataset);
 let extensions: ExtensionsView = { items: [], collapsed: false };
 
@@ -690,60 +700,89 @@ function extensionButton(extension: ExtensionsView['items'][number]): HTMLElemen
   return button;
 }
 
+/** Extensions live in the site panel, as in Arc: the ones pinned (everywhere or in this Space) first. */
 function renderExtensions() {
   $('site-extensions').hidden = !pageHasExtensions;
+  const here = state?.spaces.find((sp) => sp.id === state!.activeSpaceId)?.pinnedExtensions ?? [];
+  const pinned = (extension: ExtensionsView['items'][number]) => extension.pinned || here.includes(extension.id);
   $('site-extension-list').replaceChildren(
-    ...extensions.items.map(extensionButton),
-    h('button', { class: 'extension', title: 'Add extensions', onclick: () => (toggleSitePanel(false), api.newTab('https://chromewebstore.google.com/')) }, icon('plus')),
+    ...[...extensions.items.filter(pinned), ...extensions.items.filter((extension) => !pinned(extension))].map(extensionButton),
+    h('button', { class: 'extension', title: 'Add extensions', 'aria-label': 'Add extensions', onclick: () => (toggleSitePanel(false), api.newTab(WEB_STORE)) }, icon('plus')),
   );
-  const pinned = extensions.items.filter((extension) => extension.pinned);
-  $('extensions').hidden = !pageHasExtensions || !pinned.length;
-  $('extensions').classList.toggle('collapsed', extensions.collapsed);
-  $('extension-pins').replaceChildren(...pinned.map(extensionButton));
-  $('extension-pins').hidden = extensions.collapsed;
 }
 
 api.onExtensions((view) => {
   extensions = view;
   renderExtensions();
+  if (!spaceEditor.hidden) renderSpaceEditor();
 });
 renderExtensions();
-$('btn-extensions-toggle').onclick = () => api.setExtensionsCollapsed(!extensions.collapsed);
-$('btn-more-extensions').onclick = () => toggleSitePanel();
-
-$('btn-site').onclick = () => toggleSitePanel();
+// Any button marked data-opens="site-panel" (the sidebar's, the title bar's) opens the panel under itself.
+document.addEventListener('click', (e) => {
+  const button = (e.target as Element).closest<HTMLElement>('[data-opens="site-panel"]');
+  if (button) toggleSitePanel(sitePanel.hidden || siteAnchor !== button, button);
+});
+// The top bar's site controls: the panel hangs from a stand-in at the button's place here.
+api.onOpenSitePanel?.((rect) => {
+  let stand = document.getElementById('top-bar-anchor');
+  if (!stand) {
+    stand = document.createElement('span');
+    stand.id = 'top-bar-anchor';
+    stand.setAttribute('aria-hidden', 'true');
+    stand.style.cssText = 'position: fixed; pointer-events: none;';
+    document.body.append(stand);
+  }
+  Object.assign(stand.style, { left: `${rect.left}px`, top: `${rect.top}px`, width: `${rect.width}px`, height: `${rect.height}px` });
+  toggleSitePanel(sitePanel.hidden || siteAnchor !== stand, stand);
+});
 $('btn-copy-link').onclick = () => {
   const tab = activeTab();
   if (tab) api.copyText(tab.url);
 };
-$('site-copy').onclick = () => {
+$('site-share').onclick = async () => {
   const tab = activeTab();
-  if (tab) api.copyText(tab.url);
   toggleSitePanel(false);
+  if (!tab) return;
+  // Windows' share sheet; copying is the fallback where there is none.
+  if (!navigator.share) return api.copyText(tab.url);
+  await navigator.share({ url: tab.url, title: tab.title }).catch((err: DOMException) => err.name !== 'AbortError' && api.copyText(tab.url));
 };
-$('site-shot').onclick = () => {
-  toggleSitePanel(false);
-  api.capturePage();
-};
-$('site-boost').onclick = () => {
-  toggleSitePanel(false);
-  api.editBoost('script');
-};
-$('site-devtools').onclick = () => {
-  toggleSitePanel(false);
-  api.openDevTools();
-};
-$('site-clear').onclick = () => {
+$('site-autopip-toggle').addEventListener('change', (e) => {
   const tab = activeTab();
-  if (tab) api.clearSiteData(new URL(tab.url).origin);
+  if (tab) api.setAutoPip?.(tab.url, (e.target as HTMLInputElement).checked);
+});
+$('site-more').onclick = async () => {
+  const tab = activeTab();
+  const origin = tab ? siteOrigin(tab.url) : '';
+  if (!origin || !api.popupMenu) return;
+  const picked = await api.popupMenu([
+    { id: 'shot', label: 'Take Screenshot' },
+    { id: 'boost', label: 'Boost This Site' },
+    { separator: true },
+    { id: 'cache', label: 'Clear Cache' },
+    { id: 'cookies', label: 'Clear Cookies' },
+    { separator: true },
+    { id: 'manage', label: 'Manage Extensions' },
+    { id: 'add', label: 'Add Extension' },
+    { separator: true },
+    { id: 'settings', label: 'All Site Settings' },
+  ]);
+  if (!picked) return;
   toggleSitePanel(false);
+  if (picked === 'shot') api.capturePage();
+  else if (picked === 'boost') api.editBoost('script');
+  else if (picked === 'cache') api.clearSiteCache?.(origin);
+  else if (picked === 'cookies') api.clearSiteCookies?.(origin);
+  else if (picked === 'manage') api.newTab('chrome://extensions/');
+  else if (picked === 'add') api.newTab(WEB_STORE);
+  else if (picked === 'settings') api.newTab(`chrome://settings/content/siteDetails?site=${encodeURIComponent(origin)}`);
 };
 $('zoom-in').onclick = () => api.zoom(1);
 $('zoom-out').onclick = () => api.zoom(-1);
 $('zoom-reset').onclick = () => api.zoom(0);
 document.addEventListener('mousedown', (e) => {
-  const target = e.target as Node;
-  if (!sitePanel.hidden && !sitePanel.contains(target) && !$('btn-site').contains(target)) toggleSitePanel(false);
+  const target = e.target as Element;
+  if (!sitePanel.hidden && !sitePanel.contains(target) && !target.closest?.('[data-opens="site-panel"], .shell-menu-layer')) toggleSitePanel(false);
 });
 document.addEventListener('keydown', (e) => e.key === 'Escape' && !sitePanel.hidden && toggleSitePanel(false));
 // Scrolling sideways over the sidebar (a trackpad swipe, a mouse's thumb wheel) changes
@@ -775,12 +814,13 @@ $('sidebar').addEventListener(
 );
 
 // A click on the page takes the focus from the sidebar's page: that closes the panel too.
-window.addEventListener('blur', () => !sitePanel.hidden && toggleSitePanel(false));
+// From the top bar the frame page never had focus to lose; a click on it closes the panel instead.
+window.addEventListener('blur', () => !sitePanel.hidden && siteAnchor?.id !== 'top-bar-anchor' && toggleSitePanel(false));
 
 // Confirmations ("Link copied") pop up at the top left for a moment.
-// shortcut: with the sidebar hidden the frame page is an 8px strip, so the note isn't seen; show it over the page if that matters.
 let flashTimer: number | undefined;
 api.onFlash((message) => {
+  if (framedWindow) return; // The top bar shows it.
   const toast = $('toast');
   $('toast-text').textContent = message;
   toast.hidden = false;
@@ -802,58 +842,129 @@ const spaceEditor = $('space-editor');
 const spaceName = $<HTMLInputElement>('space-name');
 let editingSpace: string | undefined;
 
+/** With the browser's frame, the menu opens beside the sidebar, over the page, as in Arc. */
+const framedWindow = 'frame' in document.documentElement.dataset;
+
 function openSpaceEditor(spaceId: string) {
   editingSpace = spaceId;
+  keepPeek();
   downloadsPanel.hidden = true;
+  archivePanel.hidden = true;
+  toggleSitePanel(false);
+  // The frame page is only as wide as the sidebar; it covers the window while the menu is up.
+  if (framedWindow) api.setOverlay?.('space-menu', true);
+  const header = $('space-header');
+  spaceEditor.style.top = `${Math.max(8, Math.round(header.getBoundingClientRect().top) - 10)}px`;
+  header.classList.add('open');
+  header.setAttribute('aria-expanded', 'true');
   spaceEditor.hidden = false;
+  $('space-emojis').hidden = true;
   renderSpaceEditor();
   spaceName.focus();
   spaceName.select();
 }
 
 function closeSpaceEditor() {
+  if (spaceEditor.hidden) return;
   editingSpace = undefined;
   spaceEditor.hidden = true;
+  const header = $('space-header');
+  header.classList.remove('open');
+  header.setAttribute('aria-expanded', 'false');
+  if (framedWindow) api.setOverlay?.('space-menu', false);
+}
+
+/**
+ * Built once and only updated: each colour dragged in the picker re-renders the editor, and
+ * replacing its <input type=color> would close the picker under the mouse.
+ */
+const colorInput = h('input', { type: 'color', title: 'Custom colour' }) as HTMLInputElement;
+const customSwatch = h('label', { class: 'swatch custom', title: 'Custom colour' }, colorInput) as HTMLElement;
+const presetSwatches = SPACE_COLORS.map(
+  (color) =>
+    h('button', {
+      class: 'swatch',
+      style: `--swatch: ${color}`,
+      title: color,
+      onclick: () => editingSpace && api.updateSpace(editingSpace, { color }),
+    }) as HTMLElement,
+);
+$('space-colors').replaceChildren(...presetSwatches, customSwatch);
+colorInput.addEventListener('input', () => editingSpace && api.updateSpace(editingSpace, { color: colorInput.value }));
+$('space-color-reset').onclick = () => editingSpace && api.updateSpace(editingSpace, { color: DEFAULT_SPACE_COLOR });
+
+function renderSpaceColors(space: Space) {
+  const isDefault = space.color === DEFAULT_SPACE_COLOR;
+  const shown = spaceTint(space.color, false);
+  presetSwatches.forEach((swatch, i) => swatch.classList.toggle('selected', SPACE_COLORS[i] === space.color));
+  customSwatch.classList.toggle('selected', !isDefault && !SPACE_COLORS.includes(space.color));
+  customSwatch.style.setProperty('--swatch', shown);
+  if (colorInput.value !== shown) colorInput.value = shown;
+  $<HTMLButtonElement>('space-color-reset').disabled = isDefault;
 }
 
 function renderSpaceEditor() {
   const space = state?.spaces.find((s) => s.id === editingSpace);
   if (!space) return closeSpaceEditor();
   if (document.activeElement !== spaceName) spaceName.value = space.name;
+  $('space-icon').replaceChildren(space.emoji ? h('span', {}, space.emoji) : icon('space'));
   $('space-emojis').replaceChildren(
     h('button', { class: `emoji${space.emoji ? '' : ' selected'}`, title: 'No icon', onclick: () => api.updateSpace(space.id, { emoji: '' }) }, icon('close')),
     ...SPACE_EMOJIS.map((emoji) =>
       h('button', { class: `emoji${space.emoji === emoji ? ' selected' : ''}`, onclick: () => api.updateSpace(space.id, { emoji }) }, emoji),
     ),
   );
-  const custom = h('input', { type: 'color', value: space.color, title: 'Custom colour' }) as HTMLInputElement;
-  custom.addEventListener('input', () => api.updateSpace(space.id, { color: custom.value }));
-  $('space-colors').replaceChildren(
-    ...SPACE_COLORS.map((color) =>
-      h('button', {
-        class: `swatch${space.color === color ? ' selected' : ''}`,
-        style: `--swatch: ${color}`,
-        title: color,
-        onclick: () => api.updateSpace(space.id, { color }),
-      }),
-    ),
-    h('label', { class: `swatch custom${SPACE_COLORS.includes(space.color) ? '' : ' selected'}`, style: `--swatch: ${space.color}`, title: 'Custom colour' }, custom),
+  renderSpaceColors(space);
+  $<HTMLSelectElement>('space-profile').value = space.isolated ? 'separate' : 'shared';
+  // Every installed extension; the ones pinned everywhere show as pinned and stay so here.
+  const pinnedHere = space.pinnedExtensions ?? [];
+  $('space-extensions-hint').textContent = extensions.items.length ? 'Pin extensions to this Space:' : 'No extensions installed yet.';
+  $('space-extensions').replaceChildren(
+    ...extensions.items.map((extension) => {
+      const everywhere = extension.pinned;
+      const on = everywhere || pinnedHere.includes(extension.id);
+      const letter = () => h('span', { class: 'favicon letter', style: `--hue: ${hueFor(extension.name)}` }, extension.name[0]?.toUpperCase() ?? '•');
+      const image = extension.icon ? (h('img', { src: extension.icon, draggable: 'false', alt: '' }) as HTMLImageElement) : letter();
+      if (image instanceof HTMLImageElement) image.onerror = () => image.replaceWith(letter());
+      return h(
+        'button',
+        {
+          class: `sm-extension${on ? ' on' : ''}`,
+          'aria-pressed': String(on),
+          'aria-label': extension.name,
+          title: everywhere ? `${extension.name} · pinned in every Space` : extension.name,
+          disabled: everywhere,
+          onclick: () =>
+            api.updateSpace(space.id, {
+              pinnedExtensions: on ? pinnedHere.filter((id) => id !== extension.id) : [...pinnedHere, extension.id],
+            }),
+        },
+        image,
+      );
+    }),
   );
-  $<HTMLInputElement>('space-isolated-toggle').checked = !!space.isolated;
   $<HTMLButtonElement>('space-delete').disabled = state!.spaces.length < 2;
 }
 
 spaceName.addEventListener('input', () => editingSpace && spaceName.value.trim() && api.updateSpace(editingSpace, { name: spaceName.value }));
 spaceName.addEventListener('keydown', (e) => (e.key === 'Enter' || e.key === 'Escape') && closeSpaceEditor());
-$('space-isolated-toggle').addEventListener('change', (e) => {
-  if (editingSpace) api.setSpaceIsolated(editingSpace, (e.target as HTMLInputElement).checked);
+$('space-profile').addEventListener('change', (e) => {
+  if (editingSpace) api.setSpaceIsolated(editingSpace, (e.target as HTMLSelectElement).value === 'separate');
 });
+$('space-icon').onclick = () => {
+  const grid = $('space-emojis');
+  grid.hidden = !grid.hidden;
+  $('space-icon').setAttribute('aria-expanded', String(!grid.hidden));
+};
+$('space-manage-extensions').onclick = () => {
+  closeSpaceEditor();
+  api.newTab('chrome://extensions/');
+};
 $('space-delete').onclick = () => {
   if (!editingSpace) return;
   api.deleteSpace(editingSpace);
   closeSpaceEditor();
 };
-$('space-done').onclick = closeSpaceEditor;
 document.addEventListener('mousedown', (e) => {
   const target = e.target as Node;
   if (!spaceEditor.hidden && !spaceEditor.contains(target) && !$('space-header').contains(target)) closeSpaceEditor();
@@ -873,6 +984,8 @@ interface PaletteItem {
   run: () => void;
   /** Shown under the results while this item is selected, e.g. a decoded JWT. */
   detail?: string;
+  /** A bang's site: the row reads like a sentence, ending in this chip. */
+  bang?: { tag: string; name: string; active?: boolean };
 }
 
 const palette = $('palette');
@@ -881,6 +994,35 @@ const paletteList = $('palette-results');
 let paletteMode: PaletteMode = 'new-tab';
 let paletteItems: PaletteItem[] = [];
 let selected = 0;
+/** DuckDuckGo's bangs as { tag: site name } (build-bangs.mjs), once the first `!` was typed. */
+let bangNames: Record<string, string> = {};
+let bangsLoading: Promise<void> | undefined;
+/** The bang turned into a chip by Space: what's typed then searches that site. */
+let paletteBang: { tag: string; name: string } | undefined;
+const PALETTE_PLACEHOLDER = paletteInput.placeholder;
+
+function loadBangs() {
+  bangsLoading ??= fetch('bangs.json')
+    .then((res) => res.json())
+    .then((names) => {
+      bangNames = names;
+      if (!palette.hidden) updatePalette();
+    })
+    .catch((err) => console.error('Perseu: no bang list', err));
+}
+
+/** The bang that is all of the text so far (`!gh`), if DuckDuckGo knows it. */
+function typedBang(input = paletteInput) {
+  const tag = /^!([\w.-]+)$/.exec(input.value)?.[1].toLowerCase();
+  return tag && Object.hasOwn(bangNames, tag) ? { tag, name: bangNames[tag] } : undefined;
+}
+
+function setPaletteBang(bang: typeof paletteBang, text: string) {
+  paletteBang = bang;
+  paletteInput.value = text;
+  paletteInput.focus();
+  paletteChanged();
+}
 
 function looksLikeUrl(q: string) {
   return /^[a-z][a-z0-9+.-]*:\/\//i.test(q) || (!/\s/.test(q) && /\.[a-z]{2,}(:\d+)?(\/|$)/i.test(q)) || /^localhost(:\d+)?/.test(q);
@@ -896,6 +1038,7 @@ function openPalette(mode: PaletteMode) {
   paletteInput.select();
   selected = 0;
   historyResults = [];
+  paletteBang = undefined;
   updatePalette();
   refreshHistory();
 }
@@ -912,12 +1055,13 @@ type PaletteGroup = '' | 'Developer' | 'Actions' | 'Tabs' | 'History' | 'Archive
 const ACTIONS: Array<{ label: string; keywords: string; icon: IconName; shortcut?: string; run: () => void }> = [
   { label: 'New Space', keywords: 'space create add', icon: 'space', shortcut: 'newSpace', run: () => api.newSpace() },
   { label: 'Edit Space', keywords: 'space rename emoji colour color icon', icon: 'space', run: () => state && openSpaceEditor(state.activeSpaceId) },
-  { label: 'New Flechinha Window', keywords: 'flechinha little mini small window quick lookup', icon: 'miniWindow', shortcut: 'newFlechinha', run: () => api.newFlechinha() },
+  { label: 'New Mini Window', keywords: 'flechinha little mini small window quick lookup', icon: 'miniWindow', shortcut: 'newFlechinha', run: () => api.newFlechinha() },
   { label: 'Settings', keywords: 'preferences settings config options', icon: 'settings', shortcut: 'settings', run: () => api.openSettings() },
   { label: 'Responsive View', keywords: 'mobile phone responsive device split', icon: 'phone', shortcut: 'responsive', run: () => api.toggleResponsive() },
   { label: 'Toggle Sidebar', keywords: 'sidebar hide show', icon: 'sidebar', shortcut: 'toggleSidebar', run: () => api.toggleSidebar() },
   { label: 'Clear Today Tabs', keywords: 'clear archive today close', icon: 'archive', shortcut: 'clearToday', run: () => api.clearToday() },
   { label: 'Show Downloads', keywords: 'downloads files', icon: 'download', run: () => (downloadsPanel.hidden = false) },
+  { label: 'Show Archived Tabs', keywords: 'archive archived closed tabs old', icon: 'archive', run: () => ((archivePanel.hidden = false), renderArchive()) },
   {
     label: 'Import from another browser',
     keywords: 'import migrate bookmarks history arc dia chrome safari firefox brave edge vivaldi opera',
@@ -925,7 +1069,7 @@ const ACTIONS: Array<{ label: string; keywords: string; icon: IconName; shortcut
     run: () => api.openSettings('import'),
   },
   {
-    label: 'Import from Flecha (Electron)',
+    label: 'Import a Perseu Backup',
     keywords: 'import migrate electron flecha spaces tabs',
     icon: 'import',
     run: () => api.importMenu(),
@@ -970,6 +1114,8 @@ function updatePalette() {
       sub: isUrl ? 'Open' : `Search ${state.searchEngineName}`,
       run: () => open(q),
     };
+    const bang = typedBang();
+    if (bang) Object.assign(searchItem, { sub: 'DuckDuckGo search', bang });
 
     // `env` lists the current page on the project's other environments.
     if (/^env\b/i.test(q) && state.environment) {
@@ -1001,7 +1147,12 @@ function updatePalette() {
     else items.unshift(searchItem);
   }
 
+  // Only this Space's tabs: picking one from another Space would switch Space.
+  const thisSpace = state.spaces.find((s) => s.id === state!.activeSpaceId);
+  const pinnedIds = (nodes: PinnedNode[]): string[] => nodes.flatMap((n) => (n.kind === 'tab' ? [n.tabId] : pinnedIds(n.children)));
+  const spaceTabs = new Set([...(thisSpace?.today ?? []), ...pinnedIds(thisSpace?.pinned ?? [])]);
   const openTabs = Object.values(state.tabs)
+    .filter((t) => spaceTabs.has(t.id))
     .filter((t) => matches(t.title, t.url) && !(paletteMode === 'split' && t.id === activeId))
     .sort((a, b) => b.lastActive - a.lastActive)
     .slice(0, q ? 6 : 8);
@@ -1028,6 +1179,15 @@ function updatePalette() {
     }
   }
 
+  $('palette-bang').hidden = !paletteBang;
+  $('palette-bang').textContent = paletteBang?.name ?? '';
+  paletteInput.placeholder = paletteBang ? '' : PALETTE_PLACEHOLDER;
+  paletteInput.setAttribute('aria-label', paletteBang ? `Search ${paletteBang.name}` : PALETTE_PLACEHOLDER);
+  if (paletteBang) {
+    const { tag, name } = paletteBang;
+    // Only this search: tabs and history don't belong to the site that was picked.
+    items.splice(0, items.length, { group: '', icon: 'search', label: q || `!${tag}`, sub: q ? `${name} search` : 'DuckDuckGo search', bang: { tag, name, active: true }, run: () => open(`!${tag} ${q}`) });
+  }
   paletteItems = items;
   selected = Math.min(selected, Math.max(items.length - 1, 0));
   const rows: HTMLElement[] = [];
@@ -1041,7 +1201,7 @@ function updatePalette() {
       h(
         'li',
         {
-          class: `item${i === selected ? ' selected' : ''}`,
+          class: `item${i === selected ? ' selected' : ''}${item.bang ? ' bang' : ''}`,
           dataset: { index: String(i) },
           onmousemove: () => {
             if (selected !== i) (selected = i), updatePalette();
@@ -1054,6 +1214,21 @@ function updatePalette() {
         h('span', { class: 'item-icon' }, itemIcon(item.icon)),
         h('span', { class: 'label' }, item.label),
         item.sub ? h('span', { class: 'sub' }, item.sub) : null,
+        item.bang
+          ? h(
+              'span',
+              {
+                class: `palette-chip${item.bang.active ? ' active' : ''}`,
+                onmousedown: (e: Event) => {
+                  e.preventDefault();
+                  e.stopPropagation();
+                  if (!item.bang!.active) setPaletteBang({ tag: item.bang!.tag, name: item.bang!.name }, '');
+                },
+              },
+              icon('search'),
+              item.bang.name,
+            )
+          : null,
         item.hint ? h('kbd', {}, item.hint) : null,
         h('kbd', { class: 'enter' }, '↵'),
       ),
@@ -1088,13 +1263,22 @@ function refreshHistory() {
   });
 }
 
-paletteInput.addEventListener('input', () => {
+function paletteChanged() {
+  if (paletteInput.value.startsWith('!')) loadBangs();
   selected = 0;
   updatePalette();
   refreshHistory();
-});
+}
+paletteInput.addEventListener('input', paletteChanged);
 paletteInput.addEventListener('keydown', (e) => {
-  if (e.key === 'Escape') closePalette();
+  const bang = e.key === ' ' && !paletteBang && paletteInput.selectionStart === paletteInput.value.length ? typedBang() : undefined;
+  if (bang) {
+    e.preventDefault();
+    setPaletteBang(bang, '');
+  } else if (e.key === 'Backspace' && paletteBang && !paletteInput.value) {
+    e.preventDefault();
+    setPaletteBang(undefined, `!${paletteBang.tag}`);
+  } else if (e.key === 'Escape') closePalette();
   else if (e.key === 'Enter') runItem(selected);
   else if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
     e.preventDefault();
@@ -1134,6 +1318,36 @@ $('peek-close').onclick = () => api.closePeek();
 // ---- downloads --------------------------------------------------------------------
 
 const downloadsPanel = $('downloads-panel');
+const archivePanel = $('archive-panel');
+const timeAgo = new Intl.RelativeTimeFormat('en', { numeric: 'auto', style: 'short' });
+
+function archivedWhen(closedAt: number) {
+  const minutes = Math.round((closedAt - Date.now()) / 60_000);
+  if (minutes > -60) return timeAgo.format(minutes, 'minute');
+  if (minutes > -1440) return timeAgo.format(Math.round(minutes / 60), 'hour');
+  return timeAgo.format(Math.round(minutes / 1440), 'day');
+}
+
+function renderArchive() {
+  const items = state?.archive ?? [];
+  $('archive-list').replaceChildren(
+    ...(items.length
+      ? items.map((item) =>
+          h(
+            'li',
+            {},
+            h(
+              'button',
+              { class: 'archived', title: item.url, onclick: () => ((archivePanel.hidden = true), api.openArchived(item.url, item.closedAt)) },
+              itemIcon(item.url),
+              h('span', { class: 'archived-text' }, h('span', { class: 'name' }, item.title || item.url), h('span', { class: 'when' }, `${host(item.url)} · ${archivedWhen(item.closedAt)}`)),
+            ),
+          ),
+        )
+      : [h('li', { class: 'archive-empty' }, 'Tabs you archive show up here. Click one to reopen it.')]),
+  );
+}
+
 
 function formatBytes(n: number) {
   if (n < 1024) return `${n} B`;
@@ -1193,12 +1407,19 @@ function renderDownloads(items: DownloadInfo[], started?: DownloadInfo) {
 }
 
 $('btn-downloads').onclick = () => (downloadsPanel.hidden = !downloadsPanel.hidden);
+$('btn-settings').onclick = () => api.openSettings();
+$('btn-archive').onclick = () => {
+  archivePanel.hidden = !archivePanel.hidden;
+  downloadsPanel.hidden = true;
+  if (!archivePanel.hidden) renderArchive();
+};
 $('btn-clear-downloads').onclick = () => api.clearDownloads();
 document.addEventListener('mousedown', (e) => {
   const target = e.target as Node;
   if (!downloadsPanel.hidden && !downloadsPanel.contains(target) && !$('btn-downloads').contains(target)) {
     downloadsPanel.hidden = true;
   }
+  if (!archivePanel.hidden && !archivePanel.contains(target) && !$('btn-archive').contains(target)) archivePanel.hidden = true;
 });
 
 // ---- drop a tab on the page to split ---------------------------------------------------
@@ -1258,11 +1479,15 @@ function keepPeek() {
 function leavePeek(e: MouseEvent) {
   if (document.body.dataset.sidebar !== 'floating' || inPeek(e.relatedTarget)) return;
   clearTimeout(peekCloseTimer);
-  peekCloseTimer = window.setTimeout(() => {
-    // Stay open while something inside it is being used.
-    if (!palette.hidden || !spaceEditor.hidden || !downloadsPanel.hidden) return;
-    peekSidebar.classList.add('peek-leaving');
-  }, 300);
+  const leaveWhenIdle = () => {
+    // Stay open while something inside it is being used (a menu counts: Edit Space is in one).
+    if (!palette.hidden || !spaceEditor.hidden || !downloadsPanel.hidden || !archivePanel.hidden || document.querySelector('.shell-menu-layer')) {
+      peekCloseTimer = window.setTimeout(leaveWhenIdle, 300);
+      return;
+    }
+    if (!peekSidebar.matches(':hover')) peekSidebar.classList.add('peek-leaving');
+  };
+  peekCloseTimer = window.setTimeout(leaveWhenIdle, 300);
 }
 peekEdge.addEventListener('mouseenter', () => {
   keepPeek();
@@ -1328,14 +1553,96 @@ window.addEventListener('blur', hideTip);
 $('btn-sidebar').onclick = () => api.toggleSidebar();
 $('btn-back').onclick = () => api.back();
 $('btn-forward').onclick = () => api.forward();
-$('btn-reload').onclick = () => api.reload();
+$('btn-reload').onclick = () => (state?.nav.loading ? api.stop() : api.reload());
 $('urlbar').onclick = () => api.openPalette('navigate');
 $('btn-newtab').onclick = () => api.openPalette('new-tab');
 $('btn-search').onclick = () => api.openPalette('new-tab');
 $('btn-clear').onclick = () => api.clearToday();
 $('btn-newspace').onclick = () => api.newSpace();
-$('empty-new-tab').onclick = () => api.openPalette('new-tab');
-$('space-header').ondblclick = () => state && openSpaceEditor(state.activeSpaceId);
+// Searches, or opens the address, in this tab (a new tab's page) or a new one (an empty Space).
+const homeInput = $<HTMLInputElement>('home-input');
+const homeList = $('home-suggestions');
+let homeBang: { tag: string; name: string } | undefined;
+let homeHits: HistoryEntry[] = [];
+let homeSelected = -1;
+
+function renderHome() {
+  $<HTMLButtonElement>('home-go').disabled = !homeInput.value.trim() && !homeBang;
+  $('home-bang').hidden = !homeBang;
+  $('home-bang').textContent = homeBang?.name ?? '';
+  homeInput.placeholder = homeBang ? '' : 'Search or type a URL';
+  const bang = !homeBang ? typedBang(homeInput) : undefined;
+  const row = (selected: boolean, onpick: () => void, ...content: unknown[]) =>
+    h('li', { class: selected ? 'selected' : '', onmousedown: (e: Event) => (e.preventDefault(), onpick()) }, ...(content as HTMLElement[]));
+  const acceptHomeBang = () => bang && setHomeBang(bang, '');
+  homeList.replaceChildren(
+    ...(bang
+      ? [row(false, acceptHomeBang, itemIcon('search'), h('span', { class: 'name' }, homeInput.value), h('span', { class: 'host' }, 'DuckDuckGo search'), h('span', { class: 'palette-chip' }, icon('search'), bang.name))]
+      : homeHits.map((hit, i) => row(i === homeSelected, () => openFromHome(hit.url), itemIcon(hit.url), h('span', { class: 'name' }, hit.title || hit.url), h('span', { class: 'host' }, host(hit.url))))),
+  );
+  homeList.hidden = !homeList.children.length;
+}
+
+function setHomeBang(bang: typeof homeBang, text: string) {
+  homeBang = bang;
+  homeInput.value = text;
+  homeInput.focus();
+  homeChanged();
+}
+
+function homeChanged() {
+  const q = homeInput.value.trim();
+  if (q.startsWith('!')) loadBangs();
+  homeHits = [];
+  homeSelected = -1;
+  renderHome();
+  if (!q || q.startsWith('!') || homeBang) return;
+  void api.searchHistory(q).then((results) => {
+    if (homeInput.value.trim() !== q || homeBang) return;
+    homeHits = results.sort((a, b) => b.visits - a.visits).slice(0, 6);
+    renderHome();
+  });
+}
+
+function openFromHome(text: string) {
+  api.newTab(text);
+  homeBang = undefined;
+  homeInput.value = '';
+  homeChanged();
+}
+
+homeInput.addEventListener('input', homeChanged);
+homeInput.addEventListener('blur', () => (homeList.hidden = true));
+homeInput.addEventListener('keydown', (e) => {
+  const bang = e.key === ' ' && !homeBang && homeInput.selectionStart === homeInput.value.length ? typedBang(homeInput) : undefined;
+  if (bang) {
+    e.preventDefault();
+    setHomeBang(bang, '');
+  } else if (e.key === 'Backspace' && homeBang && !homeInput.value) {
+    e.preventDefault();
+    setHomeBang(undefined, `!${homeBang.tag}`);
+  } else if ((e.key === 'ArrowDown' || e.key === 'ArrowUp') && homeHits.length) {
+    e.preventDefault();
+    const n = homeHits.length;
+    homeSelected = e.key === 'ArrowDown' ? (homeSelected + 1) % n : (homeSelected <= 0 ? n : homeSelected) - 1;
+    renderHome();
+  } else if (e.key === 'Escape') {
+    homeHits = [];
+    renderHome();
+  }
+});
+$('home-composer').addEventListener('submit', (e) => {
+  e.preventDefault();
+  const text = homeInput.value.trim();
+  if (homeSelected >= 0) openFromHome(homeHits[homeSelected].url);
+  else if (homeBang) openFromHome(`!${homeBang.tag} ${text}`);
+  else if (text) openFromHome(text);
+});
+// What isn't there yet says so, and does nothing.
+for (const el of document.querySelectorAll<HTMLElement>('.composer [aria-disabled="true"]')) el.addEventListener('click', (e) => e.preventDefault());
+// A click on the Space's name opens its menu (Arc's Space settings); a second click closes it.
+$('space-header').onclick = () => (spaceEditor.hidden ? state && openSpaceEditor(state.activeSpaceId) : closeSpaceEditor());
+$('space-header').onkeydown = (e) => (e.key === 'Enter' || e.key === ' ') && (e.preventDefault(), $('space-header').click());
 $('space-header').oncontextmenu = (e) => {
   e.preventDefault();
   if (state) api.spaceMenu(state.activeSpaceId);
@@ -1345,7 +1652,7 @@ $('space-header').oncontextmenu = (e) => {
 // background: they have their own menu, the native edit menu, or none.
 $('sidebar').addEventListener('contextmenu', (e) => {
   if (e.defaultPrevented || !state) return;
-  if ((e.target as Element).closest('button, a, input, textarea, select, label, [contenteditable], .row, .popover, #extensions, #urlbar-wrap, #agent-status')) return;
+  if ((e.target as Element).closest('button, a, input, textarea, select, label, [contenteditable], .row, .popover, #urlbar-wrap, #agent-status')) return;
   e.preventDefault();
   api.spaceMenu(state.activeSpaceId);
 });
@@ -1355,10 +1662,78 @@ acceptDrops($('pinned'), { zone: 'pinned' });
 acceptDrops($('today'), { zone: 'today' });
 acceptDrops($('btn-newtab'), { zone: 'today' });
 
+// ---- now playing ------------------------------------------------------------------
+
+const nowPlayingCard = $('now-playing');
+let nowPlaying: NowPlaying | null = null;
+
+function renderNowPlaying() {
+  const song = nowPlaying;
+  const tab = song && state?.tabs[song.tabId];
+  nowPlayingCard.hidden = !tab;
+  if (!song || !tab) return void nowPlayingCard.replaceChildren();
+  nowPlayingCard.dataset.status = song.status;
+
+  const busy = song.status === 'identifying';
+  const title =
+    song.status === 'found' && song.title
+      ? song.title
+      : ({ identifying: 'Finding song…', nomatch: 'Song not found' } as Record<string, string>)[song.status] ?? tabTitle(tab);
+  const sub = song.status === 'found' ? song.artist ?? host(tab.url) : song.status === 'nomatch' ? tabTitle(tab) : host(tab.url);
+  const art = song.status === 'found' && song.artwork ? (h('img', { src: song.artwork, alt: '', draggable: 'false' }) as HTMLImageElement) : favicon(tab);
+  if (art instanceof HTMLImageElement && song.artwork) art.onerror = () => art.replaceWith(favicon(tab));
+  const control = (label: string, name: IconName, action: 'play' | 'pause' | 'next' | 'previous') =>
+    h('button', { class: 'icon-button', 'aria-label': label, title: label, onclick: () => api.mediaControl?.(song.tabId, action) }, icon(name));
+
+  nowPlayingCard.replaceChildren(
+    h(
+      'div',
+      { class: 'np-head' },
+      // The art is the way back to the tab; a cover gets the site's icon in its corner, so the source stays visible.
+      h(
+        'button',
+        { class: `np-art${song.status === 'found' && song.artwork ? ' cover' : ''}`, 'aria-label': `Go to ${tabTitle(tab)}`, title: 'Go to tab', onclick: () => api.activate(song.tabId) },
+        art,
+        song.status === 'found' && song.artwork ? h('span', { class: 'np-source' }, favicon(tab)) : null,
+      ),
+      h(
+        'div',
+        { class: 'np-meta', 'aria-live': 'polite' },
+        h('p', { class: 'np-title' }, busy ? h('span', { class: 'np-eq', 'aria-hidden': 'true' }, h('i'), h('i'), h('i')) : null, h('span', { class: 'np-clip' }, title)),
+        h(
+          'p',
+          { class: 'np-sub' },
+          // Recognised names are a guess from the audio; say so.
+          song.status === 'found' && song.source === 'recognized' ? h('span', { class: 'np-badge', title: 'Identified from the audio' }, icon('music')) : null,
+          h('span', { class: 'np-clip' }, sub),
+        ),
+      ),
+      h('button', { class: 'icon-button np-close', 'aria-label': 'Hide', title: 'Hide', onclick: () => api.dismissNowPlaying?.() }, icon('close')),
+    ),
+    h(
+      'div',
+      { class: 'np-controls' },
+      control('Previous track', 'previous', 'previous'),
+      song.playing ? control('Pause', 'pause', 'pause') : control('Play', 'play', 'play'),
+      control('Next track', 'next', 'next'),
+      h('span', { class: 'spacer' }),
+      song.status === 'audio' || song.status === 'nomatch'
+        ? h('button', { class: 'np-chip', 'aria-label': song.status === 'nomatch' ? 'Try identifying the song again' : 'Identify the song', title: 'Find the song’s name', onclick: () => api.identifySong?.(song.tabId) }, icon('music'), song.status === 'nomatch' ? 'Try again' : 'Identify')
+        : null,
+    ),
+  );
+}
+
+api.onNowPlaying?.((song) => {
+  nowPlaying = song;
+  renderNowPlaying();
+});
+
 const renderOnboarding = setupOnboarding(api, h, icon);
 api.onState((s) => {
   render(s);
   renderOnboarding(s);
+  renderNowPlaying();
 });
 api.onPalette(openPalette);
 api.onEditSpace(openSpaceEditor);

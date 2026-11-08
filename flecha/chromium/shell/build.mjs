@@ -5,7 +5,7 @@ import { build, context } from 'esbuild';
 import fs from 'node:fs';
 import path from 'node:path';
 import { featureEntries, copyFeatureStatic } from './build-features.mjs';
-import { buildAdblock } from './build-adblock.mjs';
+import { buildBangs } from './build-bangs.mjs';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const root = path.resolve(here, '../..');
@@ -18,7 +18,7 @@ function copyStatic() {
   // Lets the shell load in an older stock browser (e.g. Helium on Chromium 157) while prototyping its UI.
   if (process.env.FLECHA_MIN_CHROME) manifest.minimum_chrome_version = process.env.FLECHA_MIN_CHROME;
   fs.writeFileSync(path.join(out, 'manifest.json'), JSON.stringify(manifest, null, 2));
-  for (const f of fs.readdirSync(ui)) if (f.endsWith('.css')) fs.copyFileSync(path.join(ui, f), path.join(out, f));
+  for (const f of fs.readdirSync(ui)) if (f.endsWith(".css") || f.endsWith(".png")) fs.copyFileSync(path.join(ui, f), path.join(out, f));
   fs.copyFileSync(
     path.join(root, 'node_modules/@fontsource-variable/jetbrains-mono/files/jetbrains-mono-latin-wght-normal.woff2'),
     path.join(out, 'fonts/jetbrains-mono.woff2'),
@@ -35,19 +35,22 @@ function copyStatic() {
     fs.writeFileSync(path.join(out, page), pageHtml);
   }
   fs.copyFileSync(path.join(here, 'shell.css'), path.join(out, 'shell.css'));
-  // A Flechinha's frame page is window.html?kind=flechinha; this sends it on to the
-  // Flechinha toolbar before the sidebar's code runs.
+  // A Flechinha's frame page is window.html?kind=flechinha, and the top bar's ?kind=topbar;
+  // this sends them on to their pages before the sidebar's code runs.
   fs.writeFileSync(
     path.join(out, 'kind.js'),
-    "if (new URLSearchParams(location.search).get('kind') === 'flechinha') location.replace('flechinha.html' + location.search);\n",
+    "{ const kind = new URLSearchParams(location.search).get('kind'); if (kind === 'flechinha' || kind === 'topbar') location.replace(kind + '.html' + location.search); }\n",
   );
   fs.writeFileSync(path.join(out, 'flechinha.html'), fs.readFileSync(path.join(ui, 'flechinha.html'), 'utf8'));
+  fs.copyFileSync(path.join(ui, 'topbar.html'), path.join(out, 'topbar.html'));
+  fs.copyFileSync(path.join(here, 'offscreen.html'), path.join(out, 'offscreen.html'));
+
   for (const f of ['settings.html', 'settings-shell.css']) fs.copyFileSync(path.join(here, f), path.join(out, f));
   copyFeatureStatic(out);
 }
 
 const options = {
-  entryPoints: { background: path.join(here, 'background.ts'), sidebar: path.join(here, 'sidebar.ts'), settings: path.join(here, 'settings.ts'), flechinha: path.join(here, 'flechinha.ts'), ...featureEntries },
+  entryPoints: { background: path.join(here, 'background.ts'), sidebar: path.join(here, 'sidebar.ts'), settings: path.join(here, 'settings.ts'), flechinha: path.join(here, 'flechinha.ts'), topbar: path.join(here, 'topbar.ts'), offscreen: path.join(here, 'offscreen.ts'), ...featureEntries },
   bundle: true,
   format: 'esm',
   target: 'chrome140',
@@ -56,7 +59,7 @@ const options = {
   plugins: [{ name: 'static', setup: (b) => b.onEnd(copyStatic) }],
 };
 
-await buildAdblock(out);
+await buildBangs(out);
 
 if (process.argv.includes('--watch')) {
   const ctx = await context(options);

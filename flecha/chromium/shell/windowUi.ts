@@ -64,6 +64,12 @@ export async function showMenu(name: 'tabMenu' | 'spaceMenu' | 'extensionMenu', 
   if (picked) await runMenuItem(picked.run);
 }
 
+/** A menu the frame page builds itself (the site panel's "…"); resolves with the picked id. */
+export async function localMenu(items: Array<{ id: string; label: string } | { separator: true }>) {
+  const entries: MenuEntry<string>[] = items.map((item) => ('separator' in item ? item : { label: item.label, run: item.id }));
+  return (await overWindow('menu', () => popupMenu(entries)))?.run;
+}
+
 async function runMenuItem(run: MenuRun) {
   if ('cmd' in run) cmd(run.cmd)(...run.args);
   else if ('copy' in run) await copy(run.copy, run.message);

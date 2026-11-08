@@ -1,0 +1,215 @@
+/* The bar on top of the page area: the top of the page card, in the page's colour. The window
+   buttons (Windows) are native, over its right end; the room for them is kept clear. */
+html,
+body {
+  margin: 0;
+  height: 100%;
+  background: transparent;
+  overflow: hidden;
+  font: var(--text-sm) / 1 var(--font);
+  user-select: none;
+}
+
+#bar {
+  --window-buttons: 138px;
+  position: relative;
+  height: 100%;
+  display: flex;
+  align-items: center;
+  padding: 0 var(--window-buttons) 0 4px;
+  box-sizing: border-box;
+  border-radius: var(--page-radius) var(--page-radius) 0 0;
+  background: var(--site-bg, #fff);
+  color: var(--site-fg, #1d1d1f);
+  transition:
+    background var(--medium) var(--ease),
+    color var(--medium) var(--ease);
+  -webkit-app-region: drag;
+}
+
+button {
+  -webkit-app-region: no-drag;
+  border: 0;
+  background: none;
+  color: inherit;
+  font: inherit;
+  cursor: default;
+}
+
+#nav {
+  display: flex;
+  gap: 2px;
+}
+#nav[hidden] {
+  display: none;
+}
+
+.icon-button {
+  width: 28px;
+  height: 28px;
+  display: grid;
+  place-items: center;
+  border-radius: var(--radius-sm);
+  color: color-mix(in srgb, currentColor 72%, transparent);
+}
+.icon-button:hover:not(:disabled) {
+  background: color-mix(in srgb, var(--site-fg, #1d1d1f) 12%, transparent);
+  color: inherit;
+}
+.icon-button:disabled {
+  opacity: 0.35;
+}
+.icon-button svg {
+  width: 16px;
+  height: 16px;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.5;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+#site-group {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  transform: translate(-50%, -50%);
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  max-width: calc(100% - 2 * var(--window-buttons) - 24px);
+}
+#site-group[hidden] {
+  display: none;
+}
+
+#site {
+  position: relative;
+  min-width: 0;
+  height: 28px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 0 12px;
+  border-radius: var(--radius-sm);
+  font-weight: 500;
+}
+#site:hover {
+  background: color-mix(in srgb, var(--site-fg, #1d1d1f) 12%, transparent);
+}
+#site img {
+  width: 16px;
+  height: 16px;
+  border-radius: 4px;
+  flex: none;
+}
+#site img:not([src]),
+#site img[src=''] {
+  display: none;
+}
+#site .name {
+  /* Room for descenders (g, y), which overflow: hidden would cut at the body's line-height of 1. */
+  line-height: 1.5;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+#site[data-loading]::after {
+  content: '';
+  position: absolute;
+  left: 12px;
+  right: 12px;
+  bottom: 1px;
+  height: 2px;
+  border-radius: 1px;
+  background:
+    linear-gradient(var(--site-fg, #1d1d1f), var(--site-fg, #1d1d1f)) no-repeat,
+    color-mix(in srgb, var(--site-fg, #1d1d1f) 18%, transparent);
+  background-size: 35% 100%, 100% 100%;
+  animation: site-loading 1.1s ease-in-out infinite;
+}
+@keyframes site-loading {
+  from {
+    background-position: -60% 0, 0 0;
+  }
+  to {
+    background-position: 160% 0, 0 0;
+  }
+}
+
+#reload[data-loading] svg {
+  animation: to-stop var(--medium) var(--ease);
+}
+#reload:not([data-loading]) svg {
+  animation: to-reload var(--medium) var(--ease);
+}
+@keyframes to-stop {
+  from {
+    opacity: 0;
+    transform: rotate(-90deg) scale(0.6);
+  }
+}
+@keyframes to-reload {
+  from {
+    opacity: 0;
+    transform: rotate(90deg) scale(0.6);
+  }
+}
+
+#zoom {
+  height: 24px;
+  margin-left: auto;
+  padding: 0 8px;
+  border-radius: var(--radius-sm);
+  font-weight: 500;
+  font-variant-numeric: tabular-nums;
+}
+#zoom[hidden] {
+  display: none;
+}
+#zoom:hover {
+  background: color-mix(in srgb, var(--site-fg, #1d1d1f) 12%, transparent);
+}
+
+#toast {
+  position: absolute;
+  top: 5px;
+  height: 24px;
+  display: flex;
+  align-items: center;
+  padding: 0 10px;
+  border-radius: var(--radius-sm);
+  background: color-mix(in srgb, var(--site-fg, #1d1d1f) 14%, var(--site-bg, #fff));
+  font-weight: 500;
+  white-space: nowrap;
+  pointer-events: none;
+  animation: toast-in var(--medium) var(--ease);
+}
+#toast[hidden] {
+  display: none;
+}
+@keyframes toast-in {
+  from {
+    opacity: 0;
+  }
+}
+
+button:focus-visible {
+  outline: 2px solid color-mix(in srgb, var(--site-fg, #1d1d1f) 60%, transparent);
+  outline-offset: 1px;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  #bar {
+    transition: none;
+  }
+  #toast,
+  #reload svg {
+    animation: none !important;
+  }
+  #site[data-loading]::after {
+    animation: none;
+    background-size: 100% 100%, 100% 100%;
+  }
+}

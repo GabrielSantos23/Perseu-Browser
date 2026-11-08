@@ -70,21 +70,21 @@ function render(s: FlechinhaState) {
   forward.disabled = !s.canGoForward;
   reload.disabled = empty;
   reload.replaceChildren(icon(s.loading ? 'close' : 'reload'));
-  reload.title = s.loading ? 'Stop' : 'Reload  ⌘R';
+  reload.title = s.loading ? 'Stop' : 'Reload  Ctrl+R';
   copy.disabled = empty;
   openInFlecha.disabled = empty;
   const space = `${s.space.emoji ? s.space.emoji + ' ' : ''}${s.space.name}`;
-  openInFlecha.title = `Move this page to ${space} as a tab  ⌘O`;
+  openInFlecha.title = `Move this page to ${space} as a tab  Ctrl+O`;
 
   address.classList.toggle('loading', s.loading);
   $('host').textContent = siteOf(s.url);
   const title = s.title && s.title !== s.url ? s.title : '';
   $('page-title').textContent = title;
-  show.title = `${s.url}\nEdit address  ⌘L`;
+  show.title = `${s.url}\nEdit address  Ctrl+L`;
   siteIcon(s);
 
   if (empty && !editing) startEditing();
-  document.title = title || siteOf(s.url) || 'Flechinha';
+  document.title = title || siteOf(s.url) || 'Mini Window';
 }
 
 function startEditing() {

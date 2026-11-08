@@ -17,7 +17,9 @@ export function searchEngine(id: SearchEngineId | undefined) {
 export function resolveInput(raw: string, engine?: SearchEngineId): string {
   const input = raw.trim();
   if (!input) return 'about:blank';
-  return webAddress(input) ?? searchEngine(engine).url.replace('%s', encodeURIComponent(input));
+  // A bang (`!w perseu`, `perseu !w`) goes through DuckDuckGo's redirect whatever the search engine is.
+  const { url } = /^![\w.-]+(\s|$)|\s![\w.-]+$/.test(input) ? SEARCH_ENGINES.duckduckgo : searchEngine(engine);
+  return webAddress(input) ?? url.replace('%s', encodeURIComponent(input));
 }
 
 /** What was typed as a URL, completed (`github.com` → `https://github.com`); undefined when it reads as a search. */

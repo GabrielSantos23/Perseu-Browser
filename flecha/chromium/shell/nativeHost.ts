@@ -33,7 +33,7 @@ export interface NativeHostContext {
 }
 
 const NOT_INSTALLED =
-  'Flecha’s helper isn’t registered, so it can’t import from other browsers or run the agent bridge. Quit and reopen Flecha to register it. Building Flecha yourself? Run chromium/scripts/install-native-host.sh.';
+  'Perseu’s helper isn’t registered, so it can’t import from other browsers or run the agent bridge. Quit and reopen Perseu to register it. Building Perseu yourself? Run chromium/scripts/install-native-host.sh.';
 const IDLE_CLOSE = 60_000;
 /** How long the agent bridge waits before starting the host again, doubling up to a minute. */
 const RETRY_FIRST = 2_000;
@@ -84,7 +84,7 @@ export function registerNativeHost(ctx: NativeHostContext) {
       calls.clear();
       chunks.clear();
       console.warn('Flecha shell: native host disconnected:', reason);
-      hostError = isMissing(reason) ? NOT_INSTALLED : `Flecha’s helper stopped: ${reason}`;
+      hostError = isMissing(reason) ? NOT_INSTALLED : `Perseu’s helper stopped: ${reason}`;
       changed();
       // The bridge should stay up while it's on: start the host again, a little later each time.
       if (store.state.agent?.enabled) {
@@ -296,11 +296,8 @@ export function registerNativeHost(ctx: NativeHostContext) {
       const tab = store.state.tabs[id];
       if (tab) tabs.push({ id, title: tab.customTitle || tab.title, url: tab.url, space, zone, active: visible.has(id) });
     };
-    for (const id of store.state.favorites) add(id, '', 'favorites');
     for (const space of store.state.spaces) {
-      for (const id of store.allTabIds(space)) {
-        if (!store.state.favorites.includes(id)) add(id, space.name, space.today.includes(id) ? 'today' : 'pinned');
-      }
+      for (const id of store.allTabIds(space)) add(id, space.name, space.favorites.includes(id) ? 'favorites' : space.today.includes(id) ? 'today' : 'pinned');
     }
     return tabs;
   }
@@ -483,7 +480,7 @@ export function registerNativeHost(ctx: NativeHostContext) {
     let pending = attaching.get(chromeId);
     if (!pending) {
       pending = (async () => {
-        if (!(await hold(chromeId, HOLDER))) throw new Error("Flecha can't attach the debugger to this tab");
+        if (!(await hold(chromeId, HOLDER))) throw new Error("Perseu can't attach the debugger to this tab");
         keepAttached(chromeId);
         consoleLogs.set(chromeId, []);
         await chrome.debugger.sendCommand({ tabId: chromeId }, 'Runtime.enable');

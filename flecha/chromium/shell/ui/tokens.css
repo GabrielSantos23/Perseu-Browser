@@ -44,7 +44,7 @@
   --agent: #6d5bd0;
 
   /* Type */
-  --font: -apple-system, BlinkMacSystemFont, 'SF Pro Text', 'Inter', sans-serif;
+  --font: 'Segoe UI Variable Text', 'Segoe UI', -apple-system, BlinkMacSystemFont, 'Inter', sans-serif;
   --mono: 'JetBrains Mono', ui-monospace, 'SF Mono', Menlo, monospace;
   --text-xs: 11px;
   --text-sm: 12px;
@@ -72,6 +72,31 @@
   --ease: cubic-bezier(0.2, 0.8, 0.2, 1);
   --fast: 120ms;
   --medium: 200ms;
+}
+
+/* Menus and panels look like Windows 11's (WinUI MenuFlyout): neutral, not the Space tint.
+   Light and dark follow Flecha's theme setting, which pages see as prefers-color-scheme. */
+:root {
+  --menu-bg: #f9f9f9;
+  --menu-border: rgba(0, 0, 0, 0.1);
+  --menu-text: #1a1a1a;
+  --menu-disabled: rgba(0, 0, 0, 0.36);
+  --menu-hover: rgba(0, 0, 0, 0.05);
+  --menu-line: rgba(0, 0, 0, 0.08);
+  --menu-shadow: 0 8px 16px rgba(0, 0, 0, 0.14);
+  --menu-font: 'Segoe UI Variable Text', 'Segoe UI', system-ui, sans-serif;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --menu-bg: #2c2c2c;
+    --menu-border: rgba(255, 255, 255, 0.08);
+    --menu-text: #ffffff;
+    --menu-disabled: rgba(255, 255, 255, 0.36);
+    --menu-hover: rgba(255, 255, 255, 0.06);
+    --menu-line: rgba(255, 255, 255, 0.08);
+    --menu-shadow: 0 8px 16px rgba(0, 0, 0, 0.36);
+  }
 }
 
 @media (prefers-color-scheme: dark) {

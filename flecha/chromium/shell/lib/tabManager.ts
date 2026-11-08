@@ -77,7 +77,8 @@ export class TabManager {
       tabs[id] = { id, url: t.url, title: t.title, customTitle: t.customTitle, favicon: t.favicon, homeUrl: t.homeUrl, open: this.host.isOpen(id) };
     }
     return {
-      favorites: s.favorites,
+      // shortcut: only the open Space's favorites are listed; give each Space its group if people manage them here.
+      favorites: s.spaces.find((space) => space.id === s.activeSpaceId)?.favorites ?? [],
       spaces: s.spaces.map(({ id, name, emoji, color, pinned, today, isolated }) => ({ id, name, emoji, color, pinned, today, isolated })),
       activeSpaceId: s.activeSpaceId,
       tabs,
@@ -256,7 +257,7 @@ export class TabManager {
     return [
       ...(context && single
         ? [
-            { label: 'Open in Flecha', run: { show: tabIds[0] } },
+            { label: 'Open in Perseu', run: { show: tabIds[0] } },
             SEPARATOR,
             { label: 'Rename', run: { answer: 'rename' as const } },
             { label: 'Edit Address…', run: { answer: 'edit' as const } },

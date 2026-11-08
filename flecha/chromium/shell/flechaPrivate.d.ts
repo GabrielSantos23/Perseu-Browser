@@ -27,6 +27,10 @@ declare namespace chrome.flechaPrivate {
     overlay: boolean;
     /** The window's colour behind the page area (the Space tint), as #rrggbb. */
     background: string;
+    /** The bar on top of the page area (window.html?kind=topbar), this tall; 0 or absent for none. On Windows the window buttons sit at its right end. */
+    topBar?: number;
+    /** The top bar's text colour as #rrggbb, for the window buttons' symbols. */
+    topBarForeground?: string;
   }
 
   /** Lays out a window's frame. Applies to every normal window when windowId is omitted. */
@@ -59,6 +63,26 @@ declare namespace chrome.flechaPrivate {
    * the profile (Chromium's Settings > Appearance > Mode).
    */
   function setTheme(theme: 'system' | 'light' | 'dark'): Promise<void>;
+
+  /**
+   * Chromium's Automatic picture-in-picture permission for a site (any http(s) URL of it):
+   * whether a playing video may pop out on its own when you switch away. Rejects for other URLs.
+   */
+  function getAutoPip(url: string): Promise<boolean>;
+  function setAutoPip(url: string, allowed: boolean): Promise<void>;
+  /** What a tab is playing, from its media session; undefined when it has no media. */
+  /** The page's colour as #rrggbb: its theme-color, else its painted background; undefined before either. */
+  function getThemeColor(tabId: number): Promise<string | undefined>;
+  /** Whether the tab can go back or forward, and whether it is loading. */
+  function getNavigationState(tabId: number): Promise<{ canGoBack: boolean; canGoForward: boolean; loading: boolean }>;
+  function stopLoading(tabId: number): Promise<void>;
+  /** Downloads and hash-checks an update newer than this build. */
+  function prepareUpdate(update: { version: string; url: string; sha256: string }): Promise<'ready' | 'current' | 'unsupported' | 'busy' | 'failed'>;
+  /** Installs what prepareUpdate() got ready and restarts. */
+  function installUpdate(): Promise<'restarting' | 'none' | 'busy' | 'failed'>;
+  function getMedia(tabId: number): Promise<{ playing: boolean; title: string; artist: string; album: string; canNext: boolean; canPrevious: boolean } | undefined>;
+  /** Plays, pauses or skips a tab's media, like Chromium's global media controls. */
+  function mediaAction(tabId: number, action: 'play' | 'pause' | 'next' | 'previous'): Promise<void>;
 
   /**
    * Split views (patch 0019). In Flecha windows Chromium's split has none of its own chrome:

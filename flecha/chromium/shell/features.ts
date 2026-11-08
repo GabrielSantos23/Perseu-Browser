@@ -15,7 +15,6 @@ import * as boosts from './features/boosts';
 import { consoleErrors, watchConsoleErrors } from './features/consoleErrors';
 import { watchLocalServers } from './features/localServers';
 import { responsive } from './features/responsive';
-import { setAdBlocking } from './features/adblock';
 
 export interface FeaturesContext {
   store: Store;
@@ -54,13 +53,11 @@ export function registerFeatures(ctx: FeaturesContext): Features {
   // ---- responsive view ----
   const phone = responsive(ctx);
 
-  // ---- ad blocker: follows state.adBlock, whoever changes it (Settings, the tour) ----
-  const adBlockOn = () => store.state.adBlock !== false;
-  void setAdBlocking(adBlockOn());
+  // The old built-in ad blocker's stylesheet outlives the extension's updates; uBlock Origin replaced it.
+  void chrome.scripting.unregisterContentScripts({ ids: ['flecha-adblock-cosmetic'] }).catch(() => undefined);
 
   store.onChange(() => {
     phone.sync();
-    void setAdBlocking(adBlockOn());
   });
   // A mirror's Chromium tab can open without a Store change (the background opening it on show).
   chrome.tabs.onCreated.addListener(() => setTimeout(phone.sync, 0));

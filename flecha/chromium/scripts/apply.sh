@@ -18,6 +18,8 @@ git checkout -- chrome/app/theme/chromium
 cp "$here/branding/BRANDING" "$theme/BRANDING"
 cp "$here/branding/mac/app.icns" "$here/branding/mac/Assets.car" "$theme/mac/"
 for png in "$here"/branding/logo/*.png; do cp "$png" "$theme/"; done
+cp "$here/branding/win/chromium.ico" "$theme/win/"
+for scale in 100 200; do cp "$here/branding/logo-scaled/$scale"/*.png "$theme/../default_${scale}_percent/chromium/"; done
 
 for p in "$here"/patches/*.patch; do
   echo "patch: $(basename "$p")"

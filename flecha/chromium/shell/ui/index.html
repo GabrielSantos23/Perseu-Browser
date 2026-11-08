@@ -6,7 +6,7 @@
       http-equiv="Content-Security-Policy"
       content="default-src 'self'; font-src 'self'; img-src * data: crx: favicon: chrome://extension-icon; style-src 'self' 'unsafe-inline'; script-src 'self'"
     />
-    <title>Flecha</title>
+    <title>Perseu</title>
     <link rel="stylesheet" href="tokens.css" />
     <link rel="stylesheet" href="styles.css" />
     <link rel="stylesheet" href="onboarding.css" />
@@ -21,33 +21,22 @@
         <button id="btn-back" class="icon-button address-only" data-tip="Back" aria-label="Back" data-shortcut="back"><i data-icon="arrowLeft"></i></button>
         <button id="btn-forward" class="icon-button address-only" data-tip="Forward" aria-label="Forward" data-shortcut="forward"><i data-icon="arrowRight"></i></button>
         <button id="btn-reload" class="icon-button address-only" data-tip="Reload" aria-label="Reload" data-shortcut="reload"><i data-icon="reload"></i></button>
-        <button id="btn-clear" class="icon-button" data-tip="Archive today's pages" aria-label="Archive today's pages" data-shortcut="clearToday"><i data-icon="archive"></i></button>
         <button id="btn-search" class="icon-button" data-tip="Search or open a page" aria-label="Search or open a page" data-shortcut="newTab"><i data-icon="search"></i></button>
       </div>
 
       <div id="toast" role="status" aria-live="polite" hidden><i data-icon="check"></i><span id="toast-text"></span></div>
 
       <div class="sidebar-body">
-      <nav id="space-rail" aria-label="Spaces">
-        <div id="spaces"></div>
-        <button id="btn-newspace" class="icon-button" data-tip="New Space" aria-label="New Space" data-shortcut="newSpace"><i data-icon="plus"></i></button>
-        <span class="spacer"></span>
-        <button id="btn-downloads" class="icon-button" data-tip="Downloads" aria-label="Downloads">
-          <i data-icon="download"></i>
-          <span id="downloads-badge" hidden></span>
-        </button>
-      </nav>
-
       <div class="sidebar-main">
 
       <div id="urlbar-wrap" class="address-only">
+        <button id="btn-copy-link" class="url-action" aria-label="Copy link" data-tip="Copy link" data-shortcut="copyLink"><i data-icon="link"></i></button>
         <button id="urlbar" data-tip="Open location" data-shortcut="openLocation">
           <span id="urlbar-icon"></span>
           <span id="urlbar-env"></span>
           <span id="urlbar-text"></span>
         </button>
-        <button id="btn-copy-link" class="url-action" data-tip="Copy link" data-shortcut="copyLink"><i data-icon="link"></i></button>
-        <button id="btn-site" class="url-action" data-tip="Site controls"><i data-icon="sliders"></i></button>
+        <button id="btn-site" class="url-action" data-opens="site-panel" aria-label="Site controls" aria-haspopup="dialog" aria-expanded="false" data-tip="Site controls"><i data-icon="sliders"></i></button>
       </div>
 
       <div id="agent-status" hidden>
@@ -62,70 +51,77 @@
         <div id="local-server-list"></div>
       </section>
 
-      <header id="space-header">
-        <span id="space-title"></span>
+      <header id="space-header" role="button" tabindex="0" aria-haspopup="dialog" aria-expanded="false" data-tip="Space settings">
         <span id="space-emoji"></span>
+        <span id="space-title"></span>
         <span id="space-isolated" data-tip="This Space has its own cookies and logins" hidden><i data-icon="lock"></i></span>
       </header>
 
       <div id="scroll">
         <div id="pinned" class="drop-zone"></div>
+        <!-- Pinned above, today's tabs below; Archive clears the ones below. -->
+        <div class="today-divider">
+          <span class="today-line" aria-hidden="true"></span>
+          <button id="btn-clear" class="divider-button" data-tip="Archive today's tabs" data-shortcut="clearToday"><i data-icon="archive"></i>Archive</button>
+        </div>
         <div id="today" class="drop-zone"></div>
-        <button id="btn-newtab" class="row new-tab"><span class="row-icon"><i data-icon="plus"></i></span><span class="title">New Page</span><kbd data-shortcut="newTab"></kbd></button>
+        <button id="btn-newtab" class="row new-tab"><span class="row-icon"><i data-icon="plus"></i></span><span class="title">New tab</span><kbd data-shortcut="newTab"></kbd></button>
       </div>
 
-      <div id="site-panel" class="popover site-panel" hidden>
-        <header class="site-header">
-          <span id="site-favicon"></span>
-          <span class="site-title">
-            <strong id="site-host"></strong>
-            <small id="site-security"></small>
-          </span>
-        </header>
-        <div class="site-actions">
-          <button id="site-copy" class="site-action"><i data-icon="link"></i><span>Copy Link</span></button>
-          <button id="site-shot" class="site-action"><i data-icon="camera"></i><span>Screenshot</span></button>
-          <button id="site-boost" class="site-action"><i data-icon="zap"></i><span>Boost</span></button>
-          <button id="site-devtools" class="site-action"><i data-icon="wrench"></i><span>DevTools</span></button>
-        </div>
-        <div id="site-extensions">
+      <!-- What a tab is playing; the song's name comes from the page or from recognising its audio. -->
+      <section id="now-playing" class="now-playing" aria-label="Now playing" hidden></section>
+
+      <!-- Arc's site menu: hangs under the sliders button beside the address. -->
+      <div id="site-panel" class="popover site-panel" role="dialog" aria-label="Site controls" hidden>
+        <button id="site-share" class="site-share"><i data-icon="share"></i>Share URL</button>
+        <div id="site-extensions" class="site-section">
           <div class="field-label site-label">Extensions</div>
           <div id="site-extension-list" class="extension-list"></div>
         </div>
-        <div class="field-label site-label">Permissions</div>
-        <div id="site-permissions"></div>
-        <div class="site-row">
+        <label id="site-autopip" class="site-row site-section" hidden>
+          <span>Automatic Picture-in-Picture</span>
+          <input type="checkbox" id="site-autopip-toggle" class="switch" />
+        </label>
+        <div id="site-zoom" class="site-row site-section" hidden>
           <span>Zoom</span>
           <span class="zoom-control">
-            <button id="zoom-out" class="icon-button" data-tip="Zoom out" data-shortcut="zoomOut"><i data-icon="minus"></i></button>
+            <button id="zoom-out" class="icon-button" aria-label="Zoom out" data-tip="Zoom out" data-shortcut="zoomOut"><i data-icon="minus"></i></button>
             <button id="zoom-reset" class="zoom-value" data-tip="Actual size" data-shortcut="actualSize"></button>
-            <button id="zoom-in" class="icon-button" data-tip="Zoom in" data-shortcut="zoomIn"><i data-icon="plus"></i></button>
+            <button id="zoom-in" class="icon-button" aria-label="Zoom in" data-tip="Zoom in" data-shortcut="zoomIn"><i data-icon="plus"></i></button>
           </span>
         </div>
-        <footer class="popover-footer">
-          <button id="site-clear" class="text-button danger"><i data-icon="trash"></i>Clear Site Data</button>
+        <footer class="site-footer">
+          <span id="site-security" class="site-chip"></span>
+          <button id="site-more" class="icon-button" aria-label="More site options" aria-haspopup="menu" data-tip="More"><i data-icon="more"></i></button>
         </footer>
       </div>
 
-      <div id="space-editor" class="popover space-editor" hidden>
-        <header class="popover-header"><span>Edit Space</span></header>
-        <div class="editor-body">
-          <input id="space-name" class="text-field" maxlength="40" placeholder="Space name" spellcheck="false" />
-          <div class="field-label">Icon</div>
-          <div id="space-emojis" class="emoji-grid"></div>
-          <div class="field-label">Colour</div>
-          <div id="space-colors" class="swatches"></div>
-          <label class="toggle-row">
-            <span>
-              <strong>Separate cookies and logins</strong>
-              <small>Sign in as someone else in this Space.</small>
+      <div id="space-editor" class="popover space-editor" role="dialog" aria-label="Space settings" hidden>
+        <div class="sm-head">
+          <button id="space-icon" class="sm-icon" aria-label="Change icon" aria-expanded="false" data-tip="Change icon"></button>
+          <input id="space-name" class="text-field" maxlength="40" placeholder="Space name" spellcheck="false" aria-label="Space name" />
+        </div>
+        <div id="space-emojis" class="emoji-grid" hidden></div>
+        <div class="sm-body">
+          <div class="field-label">Preferences</div>
+          <label class="sm-row">
+            <span class="sm-label">Profile
+              <span class="sm-help" tabindex="0" aria-label="Separate gives this Space its own cookies and logins." data-tip="Separate gives this Space its own cookies and logins.">?</span>
             </span>
-            <input type="checkbox" id="space-isolated-toggle" class="switch" />
+            <select id="space-profile" class="mini-select" aria-label="Profile">
+              <option value="shared">Shared</option>
+              <option value="separate">Separate</option>
+            </select>
           </label>
+          <div class="sm-row"><span class="sm-label">Colour</span><button id="space-color-reset" class="text-button" type="button">Reset</button></div>
+          <div id="space-colors" class="swatches"></div>
+          <div class="field-label">Pinned extensions</div>
+          <p id="space-extensions-hint" class="sm-hint">Pin extensions to this Space:</p>
+          <div id="space-extensions" class="sm-extensions"></div>
+          <button id="space-manage-extensions" class="sm-wide">Manage all extensions</button>
         </div>
         <footer class="popover-footer">
           <button id="space-delete" class="text-button danger">Delete Space</button>
-          <button id="space-done" class="primary-button">Done</button>
         </footer>
       </div>
 
@@ -137,44 +133,53 @@
         <ul id="downloads-list"></ul>
       </div>
 
-      <section id="extensions" class="group" hidden>
-        <header class="group-header">
-          <button id="btn-extensions-toggle" class="extensions-toggle"><i data-icon="chevron"></i><span>Extensions</span></button>
-          <button id="btn-more-extensions" class="icon-button" data-tip="More extensions"><i data-icon="more"></i></button>
-        </header>
-        <div id="extension-pins" class="extension-list"></div>
-      </section>
+      <div id="archive-panel" class="popover" hidden>
+        <header class="popover-header"><span>Archived tabs</span></header>
+        <ul id="archive-list"></ul>
+      </div>
+
       </div>
       </div>
+
+      <!-- Downloads, the Spaces, and a new Space, along the bottom. -->
+      <nav id="sidebar-footer" aria-label="Spaces">
+        <div class="footer-start">
+          <button id="btn-downloads" class="icon-button" data-tip="Downloads" aria-label="Downloads">
+            <i data-icon="download"></i>
+            <span id="downloads-badge" hidden></span>
+          </button>
+          <button id="btn-archive" class="icon-button" data-tip="Archived tabs" aria-label="Archived tabs"><i data-icon="archive"></i></button>
+        </div>
+        <div id="spaces"></div>
+        <div class="footer-end">
+          <button id="btn-newspace" class="icon-button" data-tip="New Space" aria-label="New Space" data-shortcut="newSpace"><i data-icon="plus"></i></button>
+          <button id="btn-settings" class="icon-button" data-tip="Settings" aria-label="Settings" data-shortcut="settings"><i data-icon="settings"></i></button>
+        </div>
+      </nav>
     </aside>
 
     <div id="tooltip" role="tooltip" hidden><span id="tooltip-text"></span><kbd id="tooltip-kbd"></kbd></div>
 
+    <!-- The home screen: an empty Space, or a new tab, shows only this. -->
     <div id="empty-state" hidden>
-      <div class="empty-body">
-        <div id="empty-space" class="empty-space"></div>
-        <h2 id="empty-title"></h2>
-        <button id="empty-new-tab" class="empty-search">
-          <i data-icon="search"></i>
-          <span>Search or enter a URL</span>
-          <kbd data-shortcut="newTab"></kbd>
-        </button>
-        <section id="empty-top" class="empty-section" hidden>
-          <header>Jump back in</header>
-          <div id="empty-top-sites" class="top-sites"></div>
-        </section>
-        <section id="empty-local" class="empty-section" hidden>
-          <header>Running locally</header>
-          <div id="empty-local-list" class="local-chips"></div>
-        </section>
+      <h1 id="empty-title" class="sr-only"></h1>
+      <div class="home">
+        <span class="home-mark perseu-mark" aria-hidden="true"></span>
+        <form id="home-composer" class="composer" role="search">
+          <label class="composer-field">
+            <i data-icon="search"></i>
+            <span id="home-bang" class="palette-chip active" hidden></span>
+            <input id="home-input" type="text" placeholder="Search or type a URL" aria-label="Search or type a URL" autocomplete="off" spellcheck="false" />
+          </label>
+          <div class="composer-actions">
+            <button type="button" class="composer-chip" aria-disabled="true" data-tip="Adding tabs or files isn't available yet"><i data-icon="plus"></i>Add tabs or files</button>
+            <span class="spacer"></span>
+            <button type="button" class="composer-icon" aria-label="Voice search" aria-disabled="true" data-tip="Voice search isn't available yet"><i data-icon="mic"></i></button>
+            <button type="submit" id="home-go" class="composer-send" aria-label="Search" data-tip="Search" disabled><i data-icon="arrowUp"></i></button>
+          </div>
+          <ul id="home-suggestions" hidden></ul>
+        </form>
       </div>
-      <footer class="empty-hints">
-        <span><kbd data-shortcut="openLocation"></kbd> Open location</span>
-        <span><kbd>⌃1</kbd>–<kbd>9</kbd> Switch Space</span>
-        <span><kbd data-shortcut="reopenTab"></kbd> Reopen closed tab</span>
-        <span><kbd data-shortcut="responsive"></kbd> Responsive view</span>
-        <span><kbd data-shortcut="shortcuts"></kbd> All shortcuts</span>
-      </footer>
     </div>
 
     <div id="split-drop" hidden>
@@ -196,6 +201,7 @@
       <div class="palette-box">
         <div class="palette-field">
           <i data-icon="search"></i>
+          <span id="palette-bang" class="palette-chip active" hidden></span>
           <input id="palette-input" spellcheck="false" autocomplete="off" placeholder="Search tabs, history, or type a URL" />
           <span id="palette-mode"></span>
         </div>

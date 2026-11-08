@@ -21,10 +21,13 @@ import { SiteIcons } from './siteIcons';
 import { registerFeatures, type Features } from './features';
 // Also loaded on the first turn, for the shortcut event that may have woken the background.
 import { defaultBrowserState, isFlechinha, isFlechinhaWindow, registerNative } from './native';
+import { UPDATE_ALARM, checkForUpdate, registerUpdates } from './features/updates';
 import { registerDownloads } from './downloads';
 import { registerExtensions } from './extensions';
 import { registerSiteControls } from './siteControls';
+import { registerNowPlaying } from './nowPlaying';
 import { Favicons } from './favicons';
+import { colorAtTopOfPage } from './lib/pageColor';
 import { followedPreferences, incognito, incognitoState, sessionKey } from './incognito';
 
 const STATE_KEY = 'state';
@@ -111,7 +114,13 @@ async function start() {
     } else if (isStartPage(tab)) {
       ours.add(tab.id!);
       void chrome.tabs.remove(tab.id!);
-    } else live.set(addTab(url(tab), { activate: tab.active }).id, tab.id!);
+    } else {
+      // Reopened by Chromium or found after the shell reloaded: its row is already in the Store.
+      const known = Object.values(store.state.tabs).find((t) => t.url === url(tab) && !live.has(t.id));
+      const id = (known ?? addTab(url(tab), { activate: tab.active })).id;
+      if (tab.title) store.updateTab(id, { title: tab.title });
+      live.set(id, tab.id!);
+    }
   }
 
   /** A Flecha tab for an address; the new tab page and empty addresses make a blank "New Tab". */
@@ -129,6 +138,37 @@ async function start() {
     (hosts) => void siteIcons.want(hosts),
   );
   const rememberLive = () => void chrome.storage.session.set({ [sessionKey(LIVE_KEY)]: Object.fromEntries(live) });
+
+  // The pages' colours for the top bar, by Chromium tab id; read once a page has loaded.
+  const siteColors = new Map<number, string>();
+  function refreshSiteColor(chromeId: number) {
+    void chrome.scripting
+      .executeScript({ target: { tabId: chromeId }, func: colorAtTopOfPage })
+      .then(([frame]) => frame?.result ?? undefined, () => undefined)
+      .then((color) => color ?? chrome.flechaPrivate?.getThemeColor?.(chromeId))
+      .then((color) => color && setSiteColor(chromeId, color))
+      .catch(() => undefined);
+  }
+  function setSiteColor(chromeId: number, color: string) {
+    if (siteColors.get(chromeId) === color) return;
+    siteColors.set(chromeId, color);
+    if (store.activeTab && live.get(store.activeTab.id) === chromeId) sendStateSoon();
+  }
+  // The Web Store's button (features/webStore.ts).
+  chrome.runtime.onMessage.addListener((message, _sender, reply) => {
+    if (message?.perseu !== 'extension-installed') return;
+    void chrome.management.get(String(message.id)).then(() => reply(true), () => reply(false));
+    return true;
+  });
+  chrome.management.onInstalled.addListener(() => {
+    void chrome.tabs.query({ url: 'https://chromewebstore.google.com/*' }).then((tabs) => {
+      for (const tab of tabs) void chrome.tabs.sendMessage(tab.id!, { perseu: 'extension-added' }).catch(() => undefined);
+    });
+  });
+  // A site's own dark mode toggle (features/pageTheme.ts).
+  chrome.runtime.onMessage.addListener((message, sender) => {
+    if (message?.perseu === 'page-color' && sender.tab?.id !== undefined && sender.frameId === 0 && /^#[0-9a-f]{6}$/.test(message.color)) setSiteColor(sender.tab.id, message.color);
+  });
 
   function uiState(): UiState {
     const tabs = Object.fromEntries(Object.entries(store.state.tabs).map(([id, { history, ...tab }]) => [id, tab]));
@@ -149,10 +189,12 @@ async function start() {
       defaultBrowser,
       agent: nativeHost?.agentActivity(),
       nav: navState,
+      liveTabs: [...live.keys()],
+      siteColor: store.activeTab && store.activeTab.url !== 'about:blank' ? siteColors.get(live.get(store.activeTab.id) ?? -1) : undefined,
     };
   }
 
-  let navState: UiState['nav'] = { canGoBack: false, canGoForward: false, zoom: 100 };
+  let navState: UiState['nav'] = { canGoBack: false, canGoForward: false, loading: false, zoom: 100 };
   const sendState = () => {
     broadcast('state', uiState());
     sendFrame();
@@ -215,7 +257,7 @@ async function start() {
 
   // ---- Spaces with separate cookies and logins, as the spike's sessions.ts ----------
   // Their tabs live in a storage partition of their own, named after the Space (patch 0034);
-  // favorites and the other Spaces share the profile's. A Chromium tab can't change partition,
+  // the other Spaces share the profile's. A Chromium tab can't change partition,
   // so a tab whose Space changes partition (it moved, or its Space was isolated or joined the
   // rest again) is closed and reopens in the right one, as the spike destroys its view.
 
@@ -299,6 +341,17 @@ async function start() {
     }
   }
 
+  /** Brings the blank placeholder tab (the new tab page, Perseu's home) to the front, opening it if needed. */
+  async function showPlaceholder() {
+    if (placeholder !== undefined && (await chrome.tabs.update(placeholder, { active: true }).catch(() => undefined))) return;
+    creating++;
+    try {
+      placeholder = (await chrome.tabs.create({ windowId: await mainWindow(), active: true })).id;
+    } finally {
+      creating--;
+    }
+  }
+
   /** The placeholder goes once a real tab is showing. */
   function dropPlaceholder() {
     if (placeholder === undefined) return;
@@ -317,7 +370,12 @@ async function start() {
         // Pages reopen in their Space's partition (separate cookies and logins).
         await reopenInPartition(inWrongPartition());
         const active = store.activeTab;
-        if (!active) return;
+        // An empty Space shows the home screen: the blank placeholder tab, not the last Space's page.
+        if (!active) {
+          await showPlaceholder();
+          await refreshNav();
+          return sendStateSoon();
+        }
         // Both halves of a split are on screen, so both need a page.
         for (const id of store.visibleTabIds()) if (id !== active.id && !live.has(id)) await openChromeTab(id, false);
         const chromeId = live.get(active.id);
@@ -326,6 +384,7 @@ async function start() {
         await chrome.tabs.update(live.get(active.id)!, { active: true }).catch(() => openChromeTab(active.id, true));
         dropPlaceholder();
         await refreshNav();
+        sendStateSoon();
       })
       .catch((err) => console.error('Flecha shell: sync failed', err));
   }
@@ -422,8 +481,8 @@ async function start() {
   async function refreshNav() {
     const chromeId = store.activeTab && live.get(store.activeTab.id);
     const zoom = chromeId === undefined ? 1 : await chrome.tabs.getZoom(chromeId).catch(() => 1);
-    // Chromium doesn't tell extensions whether a tab can go back; the buttons stay enabled.
-    navState = { canGoBack: true, canGoForward: true, zoom: Math.round(zoom * 100) };
+    const page = chromeId === undefined ? undefined : await chrome.flechaPrivate.getNavigationState(chromeId).catch(() => undefined);
+    navState = { canGoBack: !!page?.canGoBack, canGoForward: !!page?.canGoForward, loading: !!page?.loading, zoom: Math.round(zoom * 100) };
   }
 
   let stateTimer: ReturnType<typeof setTimeout> | undefined;
@@ -470,16 +529,20 @@ async function start() {
     if (info.audible !== undefined) patch.audible = info.audible;
     if (info.mutedInfo) patch.muted = info.mutedInfo.muted;
     store.updateTab(id, patch);
-    if (info.status === 'complete' && tab.active) void refreshNav().then(sendState);
+    if (info.url) siteColors.delete(chromeId);
+    if (info.status === 'complete') refreshSiteColor(chromeId);
+    if ((info.status || info.url) && tab.active) void refreshNav().then(sendState);
     if (info.splitViewId !== undefined) void splitChanged(chromeId, info.splitViewId);
   }
 
   function onActivated({ tabId }: { tabId: number }) {
+    refreshSiteColor(tabId);
     const id = flechaIdFor(tabId);
     if (id && store.activeSpace.activeTabId !== id) store.activate(id);
   }
 
   function onRemoved(chromeId: number) {
+    siteColors.delete(chromeId);
     if (ours.delete(chromeId)) return;
     if (chromeId === placeholder) placeholder = undefined;
     const id = flechaIdFor(chromeId);
@@ -528,7 +591,7 @@ async function start() {
       { label: 'Rename…', run: { rename: tabId } },
       { label: 'Duplicate', run: does('newTab', tab.url) },
       // A Flechinha window of its own; the window code lives in another shell module.
-      { label: 'Open in Flechinha', run: does('openFlechinha', tab.url, tabId) },
+      { label: 'Open in Mini Window', run: does('openFlechinha', tab.url, tabId) },
       SEPARATOR,
       // An incognito window has just its tabs: nothing to pin, no other Space.
       ...(incognito
@@ -563,6 +626,7 @@ async function start() {
     return [
       { label: 'Edit Space…', run: does('editSpace', spaceId) },
       { label: 'New Folder', run: does('newFolder') },
+      { label: 'New Tab', run: does('newHomeTab', spaceId) },
       SEPARATOR,
       { label: 'Separate Cookies and Logins', checked: !!space.isolated, run: does('setSpaceIsolated', spaceId, !space.isolated) },
       ...(space.isolated && canIsolate ? [{ label: 'Clear Cookies and Site Data…', run: { clearSpaceData: spaceId } }] : []),
@@ -600,6 +664,10 @@ async function start() {
   handle({
     ready: sendState,
     newTab: (input: string) => openTab(input),
+    newHomeTab: (spaceId: string) => {
+      if (store.state.activeSpaceId !== spaceId) store.switchSpace(spaceId);
+      addTab('', {});
+    },
     navigate: (input: string) => {
       const chromeId = activeChromeId();
       if (chromeId === undefined) return openTab(input);
@@ -613,6 +681,7 @@ async function start() {
     back: onActive((id) => chrome.tabs.goBack(id).catch(() => undefined)),
     forward: onActive((id) => chrome.tabs.goForward(id).catch(() => undefined)),
     reload: onActive((id) => chrome.tabs.reload(id)),
+    stop: onActive((id) => chrome.flechaPrivate.stopLoading(id)),
     switchSpace: (id: string) => store.switchSpace(id),
     newSpace: spacesOnly(() => editSpace(store.newSpace().id)),
     editSpace: spacesOnly((id: string) => editSpace(String(id))),
@@ -639,7 +708,7 @@ async function start() {
       else store.updateTab(id, { url: home });
     },
     closeTabs: (id: string, which: string) => void unload(store.closeTodayTabs(id, which === 'others' ? 'others' : 'below')),
-    updateSpace: (id: string, patch: { name?: string; emoji?: string; color?: string }) => store.updateSpace(id, patch ?? {}),
+    updateSpace: (id: string, patch: { name?: string; emoji?: string; color?: string; pinnedExtensions?: string[] }) => store.updateSpace(id, patch ?? {}),
     // Its open tabs reopen in the other partition (sync() finds them in the wrong one).
     setSpaceIsolated: spacesOnly((id: string, isolated: boolean) => {
       if (!canIsolate) return broadcast('flash', 'Separate cookies aren’t in this build yet');
@@ -664,7 +733,16 @@ async function start() {
     clearToday: () => void unload(store.clearToday()),
     renameTab: (id: string, title: string) => store.updateTab(id, { customTitle: String(title).trim() || undefined }),
     toggleMute: (id: string) => toggleMute(String(id)),
+    openArchived: (url: string, closedAt: number) => {
+      if (store.takeArchived(String(url), Number(closedAt))) openTab(String(url));
+    },
     flash: (message: string) => broadcast('flash', String(message)),
+    // The top bar's site controls button: the window page draws the panel, over the window.
+    openSitePanel: (rect: unknown) => broadcast('site-panel', rect),
+    // The top bar's copy button: its page never holds focus, which the clipboard needs.
+    copyActiveLink: () => {
+      if (store.activeTab) void copyToClipboard(store.activeTab.url, 'Link copied');
+    },
     openPalette: (mode: string) => openPalette(mode),
     closePalette: () => {
       frame.paletteOpen = false;
@@ -727,7 +805,7 @@ async function start() {
       }
       // The tab ids change, so every open Chromium tab is closed and reopens on demand.
       const open = [...live.keys()];
-      if (!state || !store.replaceState(state)) return broadcast('flash', 'That isn’t a Flecha state file');
+      if (!state || !store.replaceState(state)) return broadcast('flash', 'That isn’t a Perseu backup file');
       void unload(open);
       const tabs = Object.keys(state.tabs).length;
       broadcast('flash', `Imported ${state.spaces.length} Spaces and ${tabs} tabs`);
@@ -735,6 +813,11 @@ async function start() {
   });
 
   registerSiteControls({ store, activeChromeId, mainWindow });
+  // The top bar shows the page's zoom, whichever way it changed (Ctrl+wheel too).
+  chrome.tabs.onZoomChange.addListener(({ tabId }) => {
+    if (tabId === activeChromeId()) void refreshNav().then(sendState);
+  });
+  registerNowPlaying({ store, chromeIdFor: (id) => live.get(id), flechaIdFor });
   registerExtensions((url) => openTab(url));
 
   // ---- commands by id, for keyboard shortcuts (the Electron spike's buildMenu) ----
@@ -953,6 +1036,8 @@ chrome.tabs.onUpdated.addListener((id, info, tab) => void ready.then((r) => r.on
 chrome.tabs.onActivated.addListener((info) => void ready.then((r) => r.onActivated(info)));
 chrome.tabs.onRemoved.addListener((id) => void ready.then((r) => r.onRemoved(id)));
 chrome.alarms.onAlarm.addListener((alarm) => alarm.name === ARCHIVE_ALARM && void ready.then((r) => r.archiveStale()));
+chrome.alarms.onAlarm.addListener((alarm) => alarm.name === UPDATE_ALARM && void checkForUpdate());
+registerUpdates();
 
 // Until the native patch opens it on its own, the toolbar button opens the sidebar.
 void chrome.sidePanel.setPanelBehavior({ openPanelOnActionClick: true });

@@ -72,6 +72,8 @@ const api: SettingsApi = {
   copy: (text) => navigator.clipboard.writeText(String(text)),
   openBoosts: () => invoke('settings:open-boosts').then(tellNotYet).then(() => undefined),
   showTour: () => invoke('settings:show-tour').then(tellNotYet).then(() => undefined),
+  checkForUpdate: () => invoke('update:check').then(() => undefined),
+  installUpdate: () => invoke('update:install').then(() => undefined),
   // The same native host calls the tour's import step makes (nativeHost.ts).
   detectBrowsers: () => invoke<DetectedBrowser[]>('detectBrowsers'),
   importBrowser: (id) => invoke<ImportResult>('importBrowser', id),

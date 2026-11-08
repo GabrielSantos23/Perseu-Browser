@@ -6,6 +6,36 @@ html {
   background: var(--surface-2);
 }
 
+/* Inside chrome://settings: its menu replaces ours, and its page shows through. */
+html[data-embedded] {
+  --pane-bg: transparent;
+  --card: #ffffff;
+  background: transparent;
+}
+@media (prefers-color-scheme: dark) {
+  html[data-embedded] {
+    --card: #292a2d;
+  }
+}
+html[data-embedded] #nav {
+  display: none;
+}
+html[data-embedded] body {
+  display: block;
+  background: transparent;
+}
+html[data-embedded] main {
+  max-width: 760px;
+  height: 100%;
+  margin: 0 auto;
+  background: transparent;
+}
+html[data-embedded] .pane-titlebar {
+  position: static;
+  backdrop-filter: none;
+  background: transparent;
+}
+
 /* No traffic lights to clear. */
 .nav-titlebar {
   height: 16px;

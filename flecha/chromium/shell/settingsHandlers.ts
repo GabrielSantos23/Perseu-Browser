@@ -91,7 +91,6 @@ export function registerSettings(ctx: SettingsContext) {
         theme: () => {},
         // nativeHost.ts follows state.agent itself, whoever sets it.
         agent: async () => {},
-        // features/adblock.ts follows state.adBlock itself, whoever sets it.
         adBlock: async () => {},
       });
       ctx.broadcastState();
@@ -104,7 +103,7 @@ export function registerSettings(ctx: SettingsContext) {
     // TODO(chromium): needs a native folder picker.
     'settings:choose-downloads-folder': () => ({ ...view(), ...notYet('Choosing the downloads folder') }),
     'settings:make-default-browser': async () => {
-      if (!ctx.makeDefaultBrowser) return { ...view(), ...notYet('Making Flecha the default browser') };
+      if (!ctx.makeDefaultBrowser) return { ...view(), ...notYet('Making Perseu the default browser') };
       await ctx.makeDefaultBrowser();
       return view();
     },
@@ -133,23 +132,10 @@ export function registerSettings(ctx: SettingsContext) {
 /** The Settings page's address; a hash picks the pane (`#shortcuts`). */
 export const SETTINGS_PAGE = 'settings.html';
 
-/** Opens Settings in a tab, or brings the open one forward on the given pane. */
-export async function openSettings(pane?: string) {
-  const url = chrome.runtime.getURL(SETTINGS_PAGE);
-  // Match patterns don't cover chrome-extension:// URLs, so compare addresses instead.
-  const open = (await chrome.tabs.query({})).find((t) => t.url?.startsWith(url));
-  if (open?.id !== undefined) {
-    await chrome.tabs.update(open.id, { active: true });
-    if (open.windowId !== undefined) await chrome.windows.update(open.windowId, { focused: true });
-    if (pane) broadcast('settings:pane', pane);
-    return;
-  }
-  // Its own small window, as in Electron, not a tab among the pages; centred on Flecha's window.
-  const main = await chrome.windows.getLastFocused({ windowTypes: ['normal'] }).catch(() => undefined);
-  const size = { width: 780, height: 580 };
-  const at =
-    main?.left !== undefined && main.width !== undefined && main.top !== undefined && main.height !== undefined
-      ? { left: Math.round(main.left + (main.width - size.width) / 2), top: Math.round(main.top + (main.height - size.height) / 3) }
-      : {};
-  await chrome.windows.create({ url: pane ? `${url}#${pane}` : url, type: 'popup', focused: true, ...size, ...at });
+/** Opens Perseu's pane of chrome://settings in a tab, or brings the open one forward on it. */
+export async function openSettings(pane = 'general') {
+  const url = `chrome://settings/perseu/${pane}`;
+  const open = (await chrome.tabs.query({})).find((t) => t.url?.startsWith('chrome://settings'));
+  if (open?.id !== undefined) await chrome.tabs.update(open.id, { url, active: true });
+  else await chrome.tabs.create({ url, active: true });
 }

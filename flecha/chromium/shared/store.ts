@@ -1,7 +1,6 @@
 import type { BrowserState, DropTarget, Environment, PinnedNode, SearchEngineId, Space, TabInfo, TabPlacement, WindowBounds } from './types';
 import type { ArcImport, ImportNode } from './importApply';
 
-const SPACE_COLORS = ['#cdd9f7', '#f6d6cc', '#d3ecd5', '#e8d6f3', '#f5e7c4', '#cfe8ec'];
 const SPACE_EMOJIS = ['🏠', '💼', '🎨', '📚', '🧪', '🎮'];
 const ARCHIVE_LIMIT = 500;
 
@@ -38,12 +37,12 @@ export class Store {
   }
 
   allTabIds(space: Space): string[] {
-    return [...this.state.favorites, ...pinnedTabIds(space.pinned), ...space.today];
+    return [...space.favorites, ...pinnedTabIds(space.pinned), ...space.today];
   }
 
   locate(tabId: string): Location | undefined {
-    if (this.state.favorites.includes(tabId)) return { zone: 'favorites' };
     for (const space of this.state.spaces) {
+      if (space.favorites.includes(tabId)) return { space, zone: 'favorites' };
       if (space.today.includes(tabId)) return { space, zone: 'today' };
       if (pinnedTabIds(space.pinned).includes(tabId)) return { space, zone: 'pinned' };
     }
@@ -126,7 +125,7 @@ export class Store {
     };
 
     if (target.zone === 'favorites') {
-      insert(this.state.favorites);
+      insert(targetSpace.favorites);
     } else if (target.zone === 'today') {
       insert(targetSpace.today);
     } else {
@@ -337,7 +336,8 @@ export class Store {
       id: randomUUID(),
       name: `Space ${n + 1}`,
       emoji: SPACE_EMOJIS[n % SPACE_EMOJIS.length],
-      color: SPACE_COLORS[n % SPACE_COLORS.length],
+      color: 'default',
+      favorites: [],
       pinned: [],
       today: [],
     };
@@ -359,13 +359,18 @@ export class Store {
   }
 
   /** Name, emoji and colour. Invalid values are ignored rather than stored. */
-  updateSpace(spaceId: string, patch: { name?: string; emoji?: string; color?: string }) {
+  updateSpace(spaceId: string, patch: { name?: string; emoji?: string; color?: string; pinnedExtensions?: string[] }) {
     const space = this.state.spaces.find((s) => s.id === spaceId);
     if (!space) return;
     const name = typeof patch.name === 'string' ? patch.name.trim().slice(0, 40) : '';
     if (name) space.name = name;
     if (typeof patch.emoji === 'string') space.emoji = [...patch.emoji.trim()].slice(0, 2).join('') || undefined;
-    if (typeof patch.color === 'string' && /^#[0-9a-f]{6}$/i.test(patch.color)) space.color = patch.color.toLowerCase();
+    if (typeof patch.color === 'string' && (patch.color === 'default' || /^#[0-9a-f]{6}$/i.test(patch.color))) space.color = patch.color.toLowerCase();
+    if (Array.isArray(patch.pinnedExtensions)) {
+      // Extension ids are 32 letters a–p; anything else is dropped.
+      const ids = [...new Set(patch.pinnedExtensions.filter((id) => typeof id === 'string' && /^[a-p]{32}$/.test(id)))];
+      space.pinnedExtensions = ids.length ? ids : undefined;
+    }
     this.changed();
   }
 
@@ -374,7 +379,7 @@ export class Store {
     if (this.state.spaces.length < 2) return [];
     const space = this.state.spaces.find((s) => s.id === spaceId);
     if (!space) return [];
-    const ids = [...pinnedTabIds(space.pinned), ...space.today];
+    const ids = [...space.favorites, ...pinnedTabIds(space.pinned), ...space.today];
     for (const id of ids) delete this.state.tabs[id];
     this.state.spaces = this.state.spaces.filter((s) => s !== space);
     if (this.state.activeSpaceId === spaceId) this.state.activeSpaceId = this.state.spaces[0].id;
@@ -388,7 +393,7 @@ export class Store {
     if (!space) return [];
     space.isolated = isolated;
     this.changed();
-    return [...pinnedTabIds(space.pinned), ...space.today];
+    return [...space.favorites, ...pinnedTabIds(space.pinned), ...space.today];
   }
 
   switchSpace(spaceId: string) {
@@ -434,6 +439,15 @@ export class Store {
     const item = this.state.archive.shift();
     if (item) this.changed();
     return item;
+  }
+
+  /** Takes one tab out of the archive, to reopen it. Returns whether it was there. */
+  takeArchived(url: string, closedAt: number) {
+    const i = this.state.archive.findIndex((a) => a.url === url && a.closedAt === closedAt);
+    if (i < 0) return false;
+    this.state.archive.splice(i, 1);
+    this.changed();
+    return true;
   }
 
   setSearchEngine(id: SearchEngineId) {
@@ -532,13 +546,14 @@ export class Store {
         id: randomUUID(),
         name: imported.name,
         emoji: imported.emoji,
-        color: SPACE_COLORS[n % SPACE_COLORS.length],
+        color: 'default',
+        favorites: [],
         pinned: this.importNodes(imported.pinned),
         today: imported.today.map((t) => this.importTab(t, false)),
       });
     }
-    for (const fav of data.favorites) s.favorites.push(this.importTab(fav, true));
     if (pristine || !s.spaces.some((sp) => sp.id === s.activeSpaceId)) s.activeSpaceId = s.spaces[0].id;
+    for (const fav of data.favorites) this.activeSpace.favorites.push(this.importTab(fav, true));
     this.changed();
   }
 
@@ -551,7 +566,8 @@ export class Store {
       id: randomUUID(),
       name,
       emoji: SPACE_EMOJIS[n % SPACE_EMOJIS.length],
-      color: SPACE_COLORS[n % SPACE_COLORS.length],
+      color: 'default',
+      favorites: [],
       pinned: this.importNodes(nodes),
       today: [],
     };
@@ -564,7 +580,7 @@ export class Store {
   /** Takes over another Flecha's whole state (its Spaces, tabs and settings), as if it had been loaded. */
   replaceState(state: BrowserState): boolean {
     if (!state?.spaces?.length || !state.tabs) return false;
-    this.state = state;
+    this.state = favoritesInSpaces(state);
     this.changed();
     return true;
   }
@@ -616,7 +632,7 @@ export class Store {
       const i = to.beforeId ? list.indexOf(to.beforeId) : -1;
       return i < 0 ? list.length : i;
     };
-    if (to.zone === 'favorites') return void this.state.favorites.splice(before(this.state.favorites), 0, tabId);
+    if (to.zone === 'favorites') return void this.activeSpace.favorites.splice(before(this.activeSpace.favorites), 0, tabId);
     const space = this.state.spaces.find((s) => s.id === to.spaceId)!;
     if (to.zone === 'today') return void space.today.splice(before(space.today), 0, tabId);
     const list = to.folderId ? findFolder(space.pinned, to.folderId)!.children : space.pinned;
@@ -630,8 +646,8 @@ export class Store {
       const i = list.indexOf(tabId);
       if (i >= 0) list.splice(i, 1);
     };
-    drop(this.state.favorites);
     for (const space of this.state.spaces) {
+      drop(space.favorites);
       drop(space.today);
       removePinned(space.pinned, tabId);
     }
@@ -645,7 +661,7 @@ export class Store {
   }
 
   private detach(tabId: string, space: Space) {
-    this.state.favorites = this.state.favorites.filter((id) => id !== tabId);
+    space.favorites = space.favorites.filter((id) => id !== tabId);
     space.today = space.today.filter((id) => id !== tabId);
     removePinned(space.pinned, tabId);
   }
@@ -681,13 +697,21 @@ export class Store {
 
   private load(): BrowserState | undefined {
     const state = this.persistence.load();
-    return state?.spaces?.length ? state : undefined;
+    return state?.spaces?.length ? favoritesInSpaces(state) : undefined;
   }
 
   private initialState(): BrowserState {
-    const space: Space = { id: randomUUID(), name: 'Personal', emoji: '🏠', color: SPACE_COLORS[0], pinned: [], today: [] };
-    return { spaces: [space], activeSpaceId: space.id, favorites: [], tabs: {}, archive: [], sidebarVisible: true };
+    const space: Space = { id: randomUUID(), name: 'Personal', emoji: '🏠', color: 'default', favorites: [], pinned: [], today: [] };
+    return { spaces: [space], activeSpaceId: space.id, tabs: {}, archive: [], sidebarVisible: true };
   }
+}
+
+/** Favorites used to be shared by every Space; a saved state's go to the Space it had open. */
+function favoritesInSpaces(state: BrowserState & { favorites?: string[] }): BrowserState {
+  for (const space of state.spaces) space.favorites ??= [];
+  (state.spaces.find((s) => s.id === state.activeSpaceId) ?? state.spaces[0]).favorites.push(...(state.favorites ?? []));
+  delete state.favorites;
+  return state;
 }
 
 export function pinnedTabIds(nodes: PinnedNode[]): string[] {

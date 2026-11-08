@@ -353,6 +353,9 @@ def main():
             shutil.copy2(dll, CRUBIT_EXE.parent / dll.name)
         subprocess.run([str(CRUBIT_EXE), '--help'], stdout=subprocess.DEVNULL, check=True)
 
+    # Perseu: the shell and the bundled extensions the installer packs.
+    subprocess.run([sys.executable, str(_ROOT_DIR / 'flecha' / 'ci' / 'stage_shell.py'), 'out/Default'], check=True)
+
     # Ninja commandline
     ninja_commandline = ['third_party\\ninja\\ninja.exe']
     if args.thread_count is not None:

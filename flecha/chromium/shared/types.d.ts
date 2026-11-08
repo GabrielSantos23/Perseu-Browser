@@ -37,6 +37,7 @@ export interface Space {
   name: string;
   emoji?: string;
   color: string;
+  favorites: string[];
   pinned: PinnedNode[];
   today: string[];
   activeTabId?: string;
@@ -48,6 +49,8 @@ export interface Space {
   splitMode?: 'responsive';
   /** Share of the width the left pane takes, 0.2–0.8. Half and half when unset. */
   splitRatio?: number;
+  /** Extensions pinned to the sidebar in this Space only, on top of the ones pinned everywhere. */
+  pinnedExtensions?: string[];
 }
 
 export interface ArchivedTab {
@@ -130,7 +133,6 @@ export type SearchEngineId = 'google' | 'duckduckgo' | 'bing' | 'brave' | 'kagi'
 export interface BrowserState {
   spaces: Space[];
   activeSpaceId: string;
-  favorites: string[];
   tabs: Record<string, TabInfo>;
   archive: ArchivedTab[];
   sidebarVisible: boolean;
@@ -175,7 +177,11 @@ export interface ShortcutInfo {
 }
 
 export interface UiState extends BrowserState {
-  nav: { canGoBack: boolean; canGoForward: boolean; zoom: number };
+  nav: { canGoBack: boolean; canGoForward: boolean; loading: boolean; zoom: number };
+  /** Tabs with a page open; the others are only remembered, and show a grey icon. */
+  liveTabs: string[];
+  /** The active page's colour as #rrggbb (its theme-color, else its background), for the top bar. */
+  siteColor?: string;
   searchEngineName: string;
   /** The active Space's colour, darkened in dark mode. */
   tint: string;
@@ -359,6 +365,8 @@ export interface SettingsApi {
   openBoosts(): Promise<void>;
   /** Plays the welcome tour again in the browser window. */
   showTour(): Promise<void>;
+  checkForUpdate(): Promise<void>;
+  installUpdate(): Promise<void>;
   /** Other browsers on this Mac with bookmarks or history to bring over. */
   detectBrowsers(): Promise<DetectedBrowser[]>;
   /** Imports one of the browsers `detectBrowsers` found, by id. */
@@ -396,6 +404,25 @@ export interface InstalledExtension {
   pinned: boolean;
 }
 
+/** The song card at the bottom of the sidebar: what a tab is playing. */
+export interface NowPlaying {
+  tabId: string;
+  /**
+   * ask: first music heard; asks before any audio leaves the PC.
+   * identifying: a few seconds were sent to the song service.
+   * found: title known (from the page, or recognised).
+   * nomatch: the service found nothing.
+   * audio: sound that isn't music (or auto recognition is off).
+   */
+  status: 'identifying' | 'found' | 'nomatch' | 'audio';
+  title?: string;
+  artist?: string;
+  artwork?: string;
+  /** Where the name came from: the page's own media info, or the recognition service. */
+  source?: 'page' | 'recognized';
+  playing: boolean;
+}
+
 /** In the user's order. */
 export interface ExtensionsView {
   items: InstalledExtension[];
@@ -404,6 +431,12 @@ export interface ExtensionsView {
 
 export interface FlechaApi {
   onExtensions(cb: (view: ExtensionsView) => void): void;
+  /** The song card; null hides it. Chromium build only. */
+  onNowPlaying?(cb: (song: NowPlaying | null) => void): void;
+  identifySong?(tabId: string): void;
+  mediaControl?(tabId: string, action: 'play' | 'pause' | 'next' | 'previous'): void;
+  /** The answer to the card's first-time question: recognise songs automatically or not. */
+  dismissNowPlaying?(): void;
   /** Opens its popup beside `anchor`, in this page's coordinates. */
   openExtension(id: string, name: string, anchor: { x: number; y: number; width: number; height: number }): void;
   extensionMenu(id: string): void;
@@ -439,9 +472,14 @@ export interface FlechaApi {
   back(): void;
   forward(): void;
   reload(): void;
+  stop(): void;
   switchSpace(spaceId: string): void;
   newSpace(): void;
-  updateSpace(spaceId: string, patch: { name?: string; emoji?: string; color?: string }): void;
+  updateSpace(spaceId: string, patch: { name?: string; emoji?: string; color?: string; pinnedExtensions?: string[] }): void;
+  /** Lets the frame page cover the whole window while a menu of its own is open (Chromium build only). */
+  setOverlay?(name: string, on: boolean): void;
+  /** The top bar asked for the site panel under its button (`rect` in window coordinates). */
+  onOpenSitePanel?(cb: (rect: { left: number; top: number; width: number; height: number }) => void): void;
   setSpaceIsolated(spaceId: string, isolated: boolean): void;
   deleteSpace(spaceId: string): void;
   tabMenu(tabId: string): void;
@@ -460,9 +498,18 @@ export interface FlechaApi {
   copyText(text: string, message?: string): void;
   renameTab(tabId: string, title: string): void;
   toggleMute(tabId: string): void;
+  openArchived(url: string, closedAt: number): void;
   /** Screenshot of the active page, to the clipboard. */
   capturePage(): void;
   clearSiteData(origin: string): void;
+  /** The site panel's "…" menu: just the cache, or cookies and site storage (signs out). Chromium build only. */
+  clearSiteCache?(origin: string): void;
+  clearSiteCookies?(origin: string): void;
+  /** Automatic Picture-in-Picture for the page's site; undefined where the browser can't tell. Chromium build only. */
+  getAutoPip?(url: string): Promise<boolean | undefined>;
+  setAutoPip?(url: string, allowed: boolean): void;
+  /** A Windows-style menu at the pointer; resolves with the picked id. Chromium build only. */
+  popupMenu?(items: Array<{ id: string; label: string } | { separator: true }>): Promise<string | undefined>;
   setSitePermission(origin: string, permission: string, decision: 'allow' | 'block' | 'ask'): void;
   zoom(step: 1 | -1 | 0): void;
   openDevTools(): void;

@@ -1,9 +1,6 @@
 name: build-arm
 on:
   workflow_dispatch:
-  push:
-    tags:
-      - '*'
 
 permissions:
   contents: read

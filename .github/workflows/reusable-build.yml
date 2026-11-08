@@ -14,6 +14,10 @@ on:
         type: boolean
         required: false
         default: false
+      ref:
+        type: string
+        required: false
+        default: ''
 
 jobs:
   build-1:
@@ -21,6 +25,7 @@ jobs:
     steps:
       - uses: actions/checkout@v7
         with:
+          ref: ${{ inputs.ref }}
           submodules: 'recursive'
       - name: Prepare
         uses: ./.github/actions/prepare
@@ -42,6 +47,7 @@ jobs:
     steps:
       - uses: actions/checkout@v7
         with:
+          ref: ${{ inputs.ref }}
           submodules: 'recursive'
       - name: Prepare
         uses: ./.github/actions/prepare
@@ -63,6 +69,7 @@ jobs:
     steps:
       - uses: actions/checkout@v7
         with:
+          ref: ${{ inputs.ref }}
           submodules: 'recursive'
       - name: Prepare
         uses: ./.github/actions/prepare
@@ -84,6 +91,7 @@ jobs:
     steps:
       - uses: actions/checkout@v7
         with:
+          ref: ${{ inputs.ref }}
           submodules: 'recursive'
       - name: Prepare
         uses: ./.github/actions/prepare
@@ -105,6 +113,7 @@ jobs:
     steps:
       - uses: actions/checkout@v7
         with:
+          ref: ${{ inputs.ref }}
           submodules: 'recursive'
       - name: Prepare
         uses: ./.github/actions/prepare
@@ -126,6 +135,7 @@ jobs:
     steps:
       - uses: actions/checkout@v7
         with:
+          ref: ${{ inputs.ref }}
           submodules: 'recursive'
       - name: Prepare
         uses: ./.github/actions/prepare
@@ -147,6 +157,7 @@ jobs:
     steps:
       - uses: actions/checkout@v7
         with:
+          ref: ${{ inputs.ref }}
           submodules: 'recursive'
       - name: Prepare
         uses: ./.github/actions/prepare
@@ -168,6 +179,7 @@ jobs:
     steps:
       - uses: actions/checkout@v7
         with:
+          ref: ${{ inputs.ref }}
           submodules: 'recursive'
       - name: Prepare
         uses: ./.github/actions/prepare
@@ -189,6 +201,7 @@ jobs:
     steps:
       - uses: actions/checkout@v7
         with:
+          ref: ${{ inputs.ref }}
           submodules: 'recursive'
       - name: Prepare
         uses: ./.github/actions/prepare
@@ -210,6 +223,7 @@ jobs:
     steps:
       - uses: actions/checkout@v7
         with:
+          ref: ${{ inputs.ref }}
           submodules: 'recursive'
       - name: Prepare
         uses: ./.github/actions/prepare
@@ -231,6 +245,7 @@ jobs:
     steps:
       - uses: actions/checkout@v7
         with:
+          ref: ${{ inputs.ref }}
           submodules: 'recursive'
       - name: Prepare
         uses: ./.github/actions/prepare
@@ -252,6 +267,7 @@ jobs:
     steps:
       - uses: actions/checkout@v7
         with:
+          ref: ${{ inputs.ref }}
           submodules: 'recursive'
       - name: Prepare
         uses: ./.github/actions/prepare
@@ -273,6 +289,7 @@ jobs:
     steps:
       - uses: actions/checkout@v7
         with:
+          ref: ${{ inputs.ref }}
           submodules: 'recursive'
       - name: Prepare
         uses: ./.github/actions/prepare
@@ -294,6 +311,7 @@ jobs:
     steps:
       - uses: actions/checkout@v7
         with:
+          ref: ${{ inputs.ref }}
           submodules: 'recursive'
       - name: Prepare
         uses: ./.github/actions/prepare
@@ -315,6 +333,7 @@ jobs:
     steps:
       - uses: actions/checkout@v7
         with:
+          ref: ${{ inputs.ref }}
           submodules: 'recursive'
       - name: Prepare
         uses: ./.github/actions/prepare
@@ -336,6 +355,7 @@ jobs:
     steps:
       - uses: actions/checkout@v7
         with:
+          ref: ${{ inputs.ref }}
           submodules: 'recursive'
       - name: Prepare
         uses: ./.github/actions/prepare

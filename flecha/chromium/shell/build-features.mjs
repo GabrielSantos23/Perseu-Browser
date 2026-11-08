@@ -10,6 +10,8 @@ export const featureEntries = {
   boostsPage: path.join(here, 'boostsPage.ts'),
   consoleHook: path.join(here, 'features/consoleHook.ts'),
   consoleBridge: path.join(here, 'features/consoleBridge.ts'),
+  pageTheme: path.join(here, 'features/pageTheme.ts'),
+  webStore: path.join(here, 'features/webStore.ts'),
 };
 
 export function copyFeatureStatic(out) {

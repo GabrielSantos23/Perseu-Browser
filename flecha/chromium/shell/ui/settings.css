@@ -1203,13 +1203,20 @@ code {
 /* ---- Space editor popover ---- */
 
 .tm-popover {
+  --surface-2: var(--menu-hover);
+  --surface-line: var(--menu-line);
+  --text: var(--menu-text);
+  --font: var(--menu-font);
   position: fixed;
   z-index: 10;
   width: 300px;
   padding: 12px;
-  border-radius: var(--radius-lg);
-  background: var(--card);
-  box-shadow: var(--shadow-pop);
+  border: 1px solid var(--menu-border);
+  border-radius: 8px;
+  background: var(--menu-bg);
+  box-shadow: var(--menu-shadow);
+  color: var(--text);
+  font-family: var(--font);
 }
 
 .tm-pop-row {

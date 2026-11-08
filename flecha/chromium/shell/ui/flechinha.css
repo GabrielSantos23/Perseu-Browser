@@ -43,7 +43,7 @@ body {
   gap: 2px;
   height: var(--toolbar);
   flex: none;
-  padding: 0 8px 0 6px;
+  padding: 0 146px 0 6px; /* the window buttons sit over the right end */
   -webkit-app-region: drag;
 }
 
