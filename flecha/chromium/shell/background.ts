@@ -107,7 +107,7 @@ async function start() {
     if (isStartPage(tab) && active && !live.has(active.id)) {
       live.set(active.id, tab.id!);
       // A blank tab reloads the new tab page: Chromium drew its own before the shell was loaded.
-      void chrome.tabs.update(tab.id!, { url: active.url === 'about:blank' ? 'chrome://newtab/' : active.url, active: true });
+      void chrome.tabs.update(tab.id!, { url: active.url === 'about:blank' ? 'chrome://newtab/' : active.url, active: true, muted: !!active.muted });
     } else if (isStartPage(tab) && !active) {
       placeholder = tab.id;
       void chrome.tabs.update(tab.id!, { url: 'chrome://newtab/' });
@@ -119,6 +119,8 @@ async function start() {
       const known = Object.values(store.state.tabs).find((t) => t.url === url(tab) && !live.has(t.id));
       const id = (known ?? addTab(url(tab), { activate: tab.active })).id;
       if (tab.title) store.updateTab(id, { title: tab.title });
+      // Chromium doesn't restore a tab's mute; the Store remembers it.
+      if (known?.muted) void chrome.tabs.update(tab.id!, { muted: true });
       live.set(id, tab.id!);
     }
   }
