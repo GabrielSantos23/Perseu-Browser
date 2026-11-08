@@ -17,6 +17,7 @@ import { applyBrowserImport, type ImportCookie } from '../shared/importApply';
 import { HOST_NAME, type HostMethods, type ToHost, type ToShell } from '../native-host/protocol';
 import { broadcast, handle } from './hub';
 import { hold, release } from './features/debuggee';
+import { canReadBrowsersHere, importData } from './features/windowsImport';
 
 export interface NativeHostContext {
   store: Store;
@@ -215,6 +216,7 @@ export function registerNativeHost(ctx: NativeHostContext) {
   handle({
     detectBrowsers: async (): Promise<DetectedBrowser[]> => {
       try {
+        if (canReadBrowsersHere()) return JSON.parse(await chrome.flechaPrivate.detectImportBrowsers());
         return await call('detectBrowsers');
       } catch (err) {
         // Settings › Import says why from hostError; the tour just shows none.
@@ -224,6 +226,7 @@ export function registerNativeHost(ctx: NativeHostContext) {
     },
     importBrowser: async (id: string): Promise<ImportResult> => {
       try {
+        if (canReadBrowsersHere()) return await applyBrowserImport(importData(JSON.parse(await chrome.flechaPrivate.readImportBrowser(String(id))), String(id)), store, history, cookies);
         return await applyBrowserImport(await call('readBrowser', String(id)), store, history, cookies);
       } catch (err) {
         const message = String(err instanceof Error ? err.message : err);

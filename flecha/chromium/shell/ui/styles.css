@@ -379,6 +379,10 @@ body[data-address='top'] .address-only {
   height: 14px;
 }
 
+#pinned-extensions {
+  flex: none;
+}
+
 #site-extension-list {
   padding: 0 var(--inset);
 }

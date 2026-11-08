@@ -673,6 +673,7 @@ function extensionButton(extension: ExtensionsView['items'][number]): HTMLElemen
     {
       class: 'extension',
       title: extension.name,
+      'aria-label': extension.name,
       draggable: 'true',
       dataset: { extension: extension.id },
       onclick: () => openExtension(button, extension.id, extension.name),
@@ -705,6 +706,9 @@ function renderExtensions() {
   $('site-extensions').hidden = !pageHasExtensions;
   const here = state?.spaces.find((sp) => sp.id === state!.activeSpaceId)?.pinnedExtensions ?? [];
   const pinned = (extension: ExtensionsView['items'][number]) => extension.pinned || here.includes(extension.id);
+  const inSidebar = pageHasExtensions ? extensions.items.filter(pinned) : [];
+  $('pinned-extensions').replaceChildren(...inSidebar.map(extensionButton));
+  $('pinned-extensions').hidden = !inSidebar.length;
   $('site-extension-list').replaceChildren(
     ...[...extensions.items.filter(pinned), ...extensions.items.filter((extension) => !pinned(extension))].map(extensionButton),
     h('button', { class: 'extension', title: 'Add extensions', 'aria-label': 'Add extensions', onclick: () => (toggleSitePanel(false), api.newTab(WEB_STORE)) }, icon('plus')),
@@ -1150,12 +1154,15 @@ function updatePalette() {
   // Only this Space's tabs: picking one from another Space would switch Space.
   const thisSpace = state.spaces.find((s) => s.id === state!.activeSpaceId);
   const pinnedIds = (nodes: PinnedNode[]): string[] => nodes.flatMap((n) => (n.kind === 'tab' ? [n.tabId] : pinnedIds(n.children)));
-  const spaceTabs = new Set([...(thisSpace?.today ?? []), ...pinnedIds(thisSpace?.pinned ?? [])]);
-  const openTabs = Object.values(state.tabs)
+  const pinnedHere = new Set([...(thisSpace?.favorites ?? []), ...pinnedIds(thisSpace?.pinned ?? [])]);
+  const spaceTabs = new Set([...(thisSpace?.today ?? []), ...pinnedHere]);
+  const matchingTabs = Object.values(state.tabs)
     .filter((t) => spaceTabs.has(t.id))
     .filter((t) => matches(t.title, t.url) && !(paletteMode === 'split' && t.id === activeId))
-    .sort((a, b) => b.lastActive - a.lastActive)
-    .slice(0, q ? 6 : 8);
+    .sort((a, b) => b.lastActive - a.lastActive);
+  // Pinned tabs get their own room: untouched ones would never make the recent cut.
+  const tabLimit = q ? 6 : 8;
+  const openTabs = [...matchingTabs.filter((t) => !pinnedHere.has(t.id)).slice(0, tabLimit), ...matchingTabs.filter((t) => pinnedHere.has(t.id)).slice(0, tabLimit)].sort((a, b) => b.lastActive - a.lastActive);
   for (const tab of openTabs) {
     items.push({
       group: 'Tabs',
@@ -1729,7 +1736,7 @@ api.onNowPlaying?.((song) => {
   renderNowPlaying();
 });
 
-const renderOnboarding = setupOnboarding(api, h, icon);
+const renderOnboarding = setupOnboarding(api, h);
 api.onState((s) => {
   render(s);
   renderOnboarding(s);

@@ -75,6 +75,11 @@ declare namespace chrome.flechaPrivate {
   function getThemeColor(tabId: number): Promise<string | undefined>;
   /** Whether the tab can go back or forward, and whether it is loading. */
   function getNavigationState(tabId: number): Promise<{ canGoBack: boolean; canGoForward: boolean; loading: boolean }>;
+  /** The first-run tour's small window without buttons, or back to normal. */
+  function setWelcomeWindow(welcome: boolean): Promise<void>;
+  /** Windows: other browsers' data, as JSON (see flecha_browser_import.h). */
+  function detectImportBrowsers(): Promise<string>;
+  function readImportBrowser(id: string): Promise<string>;
   function stopLoading(tabId: number): Promise<void>;
   /** Downloads and hash-checks an update newer than this build. */
   function prepareUpdate(update: { version: string; url: string; sha256: string }): Promise<'ready' | 'current' | 'unsupported' | 'busy' | 'failed'>;

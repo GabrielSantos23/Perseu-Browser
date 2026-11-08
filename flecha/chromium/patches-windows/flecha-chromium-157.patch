@@ -599,10 +599,10 @@ index 421dc59fd7e9b1198ff2af862f7b87ad1031f05b..29580a5475922127176c3c92ff007dfa
  #if BUILDFLAG(IS_ANDROID)
 diff --git a/chrome/browser/extensions/api/flecha_private/BUILD.gn b/chrome/browser/extensions/api/flecha_private/BUILD.gn
 new file mode 100644
-index 0000000000000000000000000000000000000000..859ef584b5e13d286bd8edcb81557e4a7a2687fe
+index 0000000000000000000000000000000000000000..260be41b5ada5bb55d137246f1b11ea383b70c36
 --- /dev/null
 +++ b/chrome/browser/extensions/api/flecha_private/BUILD.gn
-@@ -0,0 +1,32 @@
+@@ -0,0 +1,35 @@
 +# Copyright 2026 The Flecha Authors
 +# Use of this source code is governed by a BSD-style license that can be
 +# found in the LICENSE file.
@@ -611,6 +611,8 @@ index 0000000000000000000000000000000000000000..859ef584b5e13d286bd8edcb81557e4a
 +
 +source_set("flecha_private") {
 +  sources = [
++    "flecha_browser_import.cc",
++    "flecha_browser_import.h",
 +    "flecha_private_api.cc",
 +    "flecha_private_api.h",
 +  ]
@@ -631,16 +633,306 @@ index 0000000000000000000000000000000000000000..859ef584b5e13d286bd8edcb81557e4a
 +    "//net/traffic_annotation",
 +    "//services/network/public/cpp",
 +    "//extensions/browser",
++    "//sql",
 +    "//services/media_session/public/cpp",
 +    "//services/media_session/public/mojom",
 +  ]
 +}
+diff --git a/chrome/browser/extensions/api/flecha_private/flecha_browser_import.cc b/chrome/browser/extensions/api/flecha_private/flecha_browser_import.cc
+new file mode 100644
+index 0000000000000000000000000000000000000000..7cb010d86391326c6a9f527d80bb71a86b4c067d
+--- /dev/null
++++ b/chrome/browser/extensions/api/flecha_private/flecha_browser_import.cc
+@@ -0,0 +1,258 @@
++// Copyright 2026 The Flecha Authors
++// Use of this source code is governed by a BSD-style license that can be
++// found in the LICENSE file.
++
++#include "chrome/browser/extensions/api/flecha_private/flecha_browser_import.h"
++
++#include <optional>
++#include <string>
++#include <vector>
++
++#include "base/containers/span.h"
++#include "base/files/file_enumerator.h"
++#include "base/files/file_path.h"
++#include "base/files/file_util.h"
++#include "base/files/scoped_temp_dir.h"
++#include "base/json/json_writer.h"
++#include "base/path_service.h"
++#include "base/strings/cstring_view.h"
++#include "base/strings/string_util.h"
++#include "base/strings/utf_string_conversions.h"
++#include "base/values.h"
++#include "build/build_config.h"
++#include "chrome/common/chrome_paths.h"
++#include "sql/database.h"
++#include "sql/statement.h"
++
++#if BUILDFLAG(IS_WIN)
++#include "base/base_paths_win.h"
++#endif
++
++namespace {
++
++// Rows of history per profile, as in the macOS host.
++constexpr char kChromiumHistory[] =
++    "SELECT url, title, visit_count, last_visit_time / 1000 - 11644473600000 "
++    "FROM urls WHERE hidden = 0 AND last_visit_time > 0 "
++    "ORDER BY last_visit_time DESC LIMIT 5000";
++constexpr char kFirefoxHistory[] =
++    "SELECT url, title, visit_count, last_visit_date / 1000 FROM moz_places "
++    "WHERE hidden = 0 AND visit_count > 0 AND last_visit_date IS NOT NULL "
++    "ORDER BY last_visit_date DESC LIMIT 5000";
++constexpr char kFirefoxBookmarks[] =
++    "SELECT b.id, b.parent, b.type, b.title, b.guid, p.url "
++    "FROM moz_bookmarks b LEFT JOIN moz_places p ON p.id = b.fk "
++    "ORDER BY b.parent, b.position";
++
++struct Source {
++  const char* id;
++  const char* name;
++  bool firefox;
++  bool roaming;
++  const char* folder;
++  // The folder is the profile itself (Opera).
++  bool single_profile = false;
++};
++
++constexpr Source kSources[] = {
++    {"chrome", "Chrome", false, false, "Google\\Chrome\\User Data"},
++    {"edge", "Edge", false, false, "Microsoft\\Edge\\User Data"},
++    {"brave", "Brave", false, false, "BraveSoftware\\Brave-Browser\\User Data"},
++    {"vivaldi", "Vivaldi", false, false, "Vivaldi\\User Data"},
++    {"helium", "Helium", false, false, "imput\\Helium\\User Data"},
++    {"chromium", "Chromium", false, false, "Chromium\\User Data"},
++    {"opera", "Opera", false, true, "Opera Software\\Opera Stable", true},
++    {"opera-gx", "Opera GX", false, true, "Opera Software\\Opera GX Stable",
++     true},
++    {"firefox", "Firefox", true, true, "Mozilla\\Firefox\\Profiles"},
++    {"zen", "Zen", true, true, "zen\\Profiles"},
++    {"librewolf", "LibreWolf", true, true, "librewolf\\Profiles"},
++    {"waterfox", "Waterfox", true, true, "Waterfox\\Profiles"},
++    {"floorp", "Floorp", true, true, "Floorp\\Profiles"},
++};
++
++std::optional<base::FilePath> SourceRoot(const Source& source) {
++#if BUILDFLAG(IS_WIN)
++  base::FilePath root;
++  if (!base::PathService::Get(
++          source.roaming ? base::DIR_ROAMING_APP_DATA : base::DIR_LOCAL_APP_DATA,
++          &root)) {
++    return std::nullopt;
++  }
++  root = root.AppendASCII(source.folder);
++  base::FilePath own;
++  // Perseu never imports from itself.
++  if (base::PathService::Get(chrome::DIR_USER_DATA, &own) && own == root) {
++    return std::nullopt;
++  }
++  return root;
++#else
++  return std::nullopt;
++#endif
++}
++
++std::vector<base::FilePath> Profiles(const Source& source,
++                                     const base::FilePath& root) {
++  std::vector<base::FilePath> found;
++  if (source.single_profile) {
++    if (base::PathExists(root.AppendASCII("Bookmarks")) ||
++        base::PathExists(root.AppendASCII("History"))) {
++      found.push_back(root);
++    }
++    return found;
++  }
++  base::FileEnumerator dirs(root, false, base::FileEnumerator::DIRECTORIES);
++  for (base::FilePath dir = dirs.Next(); !dir.empty(); dir = dirs.Next()) {
++    if (source.firefox) {
++      if (base::PathExists(dir.AppendASCII("places.sqlite"))) {
++        found.push_back(dir);
++      }
++      continue;
++    }
++    const std::string name = dir.BaseName().AsUTF8Unsafe();
++    if ((name == "Default" || base::StartsWith(name, "Profile ")) &&
++        (base::PathExists(dir.AppendASCII("Bookmarks")) ||
++         base::PathExists(dir.AppendASCII("History")))) {
++      found.push_back(dir);
++    }
++  }
++  return found;
++}
++
++std::string ProfileName(const Source& source, const base::FilePath& dir) {
++  const std::string name = dir.BaseName().AsUTF8Unsafe();
++  const size_t dot = source.firefox ? name.find('.') : std::string::npos;
++  return dot == std::string::npos ? name : name.substr(dot + 1);
++}
++
++// The browser may have its database open, so a copy is read.
++bool OpenCopy(const base::FilePath& file,
++              const base::ScopedTempDir& temp,
++              sql::Database& db) {
++  const base::FilePath copy = temp.GetPath().Append(file.BaseName());
++  if (!base::CopyFile(file, copy)) {
++    return false;
++  }
++  // Recent writes may still be in the write-ahead log.
++  base::CopyFile(base::FilePath(file.value() + FILE_PATH_LITERAL("-wal")),
++                 base::FilePath(copy.value() + FILE_PATH_LITERAL("-wal")));
++  return db.Open(copy);
++}
++
++std::string Clean(std::string text) {
++  return base::IsStringUTF8(text) ? text : std::string();
++}
++
++base::ListValue ReadHistory(sql::Database& db, base::cstring_view query) {
++  base::ListValue rows;
++  sql::Statement statement(db.GetUniqueStatement(query));
++  while (statement.Step()) {
++    const std::string url = Clean(statement.ColumnString(0));
++    if (url.empty()) {
++      continue;
++    }
++    rows.Append(base::DictValue()
++                    .Set("url", url)
++                    .Set("title", Clean(statement.ColumnString(1)))
++                    .Set("visits", statement.ColumnInt(2))
++                    .Set("lastVisit",
++                         static_cast<double>(statement.ColumnInt64(3))));
++  }
++  return rows;
++}
++
++base::ListValue ReadFirefoxBookmarks(sql::Database& db) {
++  base::ListValue rows;
++  sql::Statement statement(db.GetUniqueStatement(kFirefoxBookmarks));
++  while (statement.Step()) {
++    rows.Append(base::DictValue()
++                    .Set("id", statement.ColumnInt(0))
++                    .Set("parent", statement.ColumnInt(1))
++                    .Set("type", statement.ColumnInt(2))
++                    .Set("title", Clean(statement.ColumnString(3)))
++                    .Set("guid", Clean(statement.ColumnString(4)))
++                    .Set("url", Clean(statement.ColumnString(5))));
++  }
++  return rows;
++}
++
++std::string ToJson(base::ValueView value) {
++  return base::WriteJson(value).value_or("null");
++}
++
++}  // namespace
++
++std::string FlechaDetectImportBrowsers() {
++  base::ListValue browsers;
++  for (const Source& source : kSources) {
++    const std::optional<base::FilePath> root = SourceRoot(source);
++    if (!root || !base::DirectoryExists(*root)) {
++      continue;
++    }
++    const std::vector<base::FilePath> profiles = Profiles(source, *root);
++    if (profiles.empty()) {
++      continue;
++    }
++    bool bookmarks = source.firefox;
++    bool history = source.firefox;
++    for (const base::FilePath& dir : profiles) {
++      bookmarks |= base::PathExists(dir.AppendASCII("Bookmarks"));
++      history |= base::PathExists(dir.AppendASCII("History"));
++    }
++    browsers.Append(base::DictValue()
++                        .Set("id", source.id)
++                        .Set("name", source.name)
++                        .Set("profiles", static_cast<int>(profiles.size()))
++                        .Set("hasBookmarks", bookmarks)
++                        .Set("hasHistory", history));
++  }
++  return ToJson(browsers);
++}
++
++std::string FlechaReadImportBrowser(const std::string& id) {
++  base::DictValue result;
++  base::ListValue profiles_out;
++  for (const Source& source : kSources) {
++    if (id != source.id) {
++      continue;
++    }
++    result.Set("name", source.name);
++    const std::optional<base::FilePath> root = SourceRoot(source);
++    if (!root) {
++      break;
++    }
++    for (const base::FilePath& dir : Profiles(source, *root)) {
++      base::DictValue profile;
++      profile.Set("name", ProfileName(source, dir));
++      base::ScopedTempDir temp;
++      if (!temp.CreateUniqueTempDir()) {
++        continue;
++      }
++      sql::Database db(sql::Database::Tag("FirefoxImporter"));
++      if (source.firefox) {
++        if (OpenCopy(dir.AppendASCII("places.sqlite"), temp, db)) {
++          profile.Set("firefox", ReadFirefoxBookmarks(db));
++          profile.Set("history", ReadHistory(db, kFirefoxHistory));
++        }
++      } else {
++        base::ListValue documents;
++        for (const char* file : {"Bookmarks", "AccountBookmarks"}) {
++          std::string text;
++          if (base::ReadFileToString(dir.AppendASCII(file), &text) &&
++              base::IsStringUTF8(text)) {
++            documents.Append(std::move(text));
++          }
++        }
++        profile.Set("chromium", std::move(documents));
++        const base::FilePath history = dir.AppendASCII("History");
++        if (base::PathExists(history) && OpenCopy(history, temp, db)) {
++          profile.Set("history", ReadHistory(db, kChromiumHistory));
++        }
++      }
++      profiles_out.Append(std::move(profile));
++    }
++    break;
++  }
++  result.Set("profiles", std::move(profiles_out));
++  return ToJson(result);
++}
+diff --git a/chrome/browser/extensions/api/flecha_private/flecha_browser_import.h b/chrome/browser/extensions/api/flecha_private/flecha_browser_import.h
+new file mode 100644
+index 0000000000000000000000000000000000000000..93b4a58ca39e929f7070f16d7eeae64b21d32411
+--- /dev/null
++++ b/chrome/browser/extensions/api/flecha_private/flecha_browser_import.h
+@@ -0,0 +1,19 @@
++// Copyright 2026 The Flecha Authors
++// Use of this source code is governed by a BSD-style license that can be
++// found in the LICENSE file.
++
++#ifndef CHROME_BROWSER_EXTENSIONS_API_FLECHA_PRIVATE_FLECHA_BROWSER_IMPORT_H_
++#define CHROME_BROWSER_EXTENSIONS_API_FLECHA_PRIVATE_FLECHA_BROWSER_IMPORT_H_
++
++#include <string>
++
++// Reads other browsers' bookmarks and history on Windows, where the shell has
++// no native host. Both block and return JSON. Only fixed folders are read.
++
++// [{id, name, profiles, hasBookmarks, hasHistory}]
++std::string FlechaDetectImportBrowsers();
++
++// {name, profiles: [{name, chromium: [json], firefox: [row], history: [row]}]}
++std::string FlechaReadImportBrowser(const std::string& id);
++
++#endif  // CHROME_BROWSER_EXTENSIONS_API_FLECHA_PRIVATE_FLECHA_BROWSER_IMPORT_H_
 diff --git a/chrome/browser/extensions/api/flecha_private/flecha_private_api.cc b/chrome/browser/extensions/api/flecha_private/flecha_private_api.cc
 new file mode 100644
-index 0000000000000000000000000000000000000000..8d6a400a11bd875395d33c86dcf2e2f9a43b689f
+index 0000000000000000000000000000000000000000..d222b94a1c144e5c5b44fcf4254c5271428dd02b
 --- /dev/null
 +++ b/chrome/browser/extensions/api/flecha_private/flecha_private_api.cc
-@@ -0,0 +1,1079 @@
+@@ -0,0 +1,1118 @@
 +// Copyright 2026 The Flecha Authors
 +// Use of this source code is governed by a BSD-style license that can be
 +// found in the LICENSE file.
@@ -669,6 +961,7 @@ index 0000000000000000000000000000000000000000..8d6a400a11bd875395d33c86dcf2e2f9
 +#include "services/network/public/cpp/resource_request.h"
 +#include "services/network/public/cpp/shared_url_loader_factory.h"
 +#include "services/network/public/cpp/simple_url_loader.h"
++#include "chrome/browser/extensions/api/flecha_private/flecha_browser_import.h"
 +#include <optional>
 +#include <string>
 +
@@ -1199,6 +1492,44 @@ index 0000000000000000000000000000000000000000..8d6a400a11bd875395d33c86dcf2e2f9
 +  }
 +}
 +
++ExtensionFunction::ResponseAction FlechaPrivateSetWelcomeWindowFunction::Run() {
++  auto params = flecha_private::SetWelcomeWindow::Params::Create(args());
++  EXTENSION_FUNCTION_VALIDATE(params);
++  FlechaFrameHost* host = HostForContents(GetSenderWebContents());
++  if (!host) {
++    return RespondNow(Error(kNoWindowError, "(welcome)"));
++  }
++  host->SetWelcome(params->welcome);
++  return RespondNow(NoArguments());
++}
++
++ExtensionFunction::ResponseAction
++FlechaPrivateDetectImportBrowsersFunction::Run() {
++  base::ThreadPool::PostTaskAndReplyWithResult(
++      FROM_HERE, {base::MayBlock(), base::TaskPriority::USER_VISIBLE},
++      base::BindOnce(&FlechaDetectImportBrowsers),
++      base::BindOnce(&FlechaPrivateDetectImportBrowsersFunction::Done, this));
++  return RespondLater();
++}
++
++void FlechaPrivateDetectImportBrowsersFunction::Done(std::string json) {
++  Respond(WithArguments(std::move(json)));
++}
++
++ExtensionFunction::ResponseAction FlechaPrivateReadImportBrowserFunction::Run() {
++  auto params = flecha_private::ReadImportBrowser::Params::Create(args());
++  EXTENSION_FUNCTION_VALIDATE(params);
++  base::ThreadPool::PostTaskAndReplyWithResult(
++      FROM_HERE, {base::MayBlock(), base::TaskPriority::USER_VISIBLE},
++      base::BindOnce(&FlechaReadImportBrowser, params->id),
++      base::BindOnce(&FlechaPrivateReadImportBrowserFunction::Done, this));
++  return RespondLater();
++}
++
++void FlechaPrivateReadImportBrowserFunction::Done(std::string json) {
++  Respond(WithArguments(std::move(json)));
++}
++
 +ExtensionFunction::ResponseAction FlechaPrivateStopLoadingFunction::Run() {
 +  auto params = flecha_private::StopLoading::Params::Create(args());
 +  EXTENSION_FUNCTION_VALIDATE(params);
@@ -1722,10 +2053,10 @@ index 0000000000000000000000000000000000000000..8d6a400a11bd875395d33c86dcf2e2f9
 +}  // namespace extensions
 diff --git a/chrome/browser/extensions/api/flecha_private/flecha_private_api.h b/chrome/browser/extensions/api/flecha_private/flecha_private_api.h
 new file mode 100644
-index 0000000000000000000000000000000000000000..6f05f2c5c8337f0a8a643693b92cd84688f040de
+index 0000000000000000000000000000000000000000..9a57ce80bbc97f2f7ca2004018837b9c3397f777
 --- /dev/null
 +++ b/chrome/browser/extensions/api/flecha_private/flecha_private_api.h
-@@ -0,0 +1,342 @@
+@@ -0,0 +1,375 @@
 +// Copyright 2026 The Flecha Authors
 +// Use of this source code is governed by a BSD-style license that can be
 +// found in the LICENSE file.
@@ -1872,6 +2203,39 @@ index 0000000000000000000000000000000000000000..6f05f2c5c8337f0a8a643693b92cd846
 +
 + private:
 +  void OnInstalled(bool ok);
++};
++
++class FlechaPrivateSetWelcomeWindowFunction : public ExtensionFunction {
++ public:
++  DECLARE_EXTENSION_FUNCTION("flechaPrivate.setWelcomeWindow", UNKNOWN)
++
++ protected:
++  ~FlechaPrivateSetWelcomeWindowFunction() override = default;
++  ResponseAction Run() override;
++};
++
++class FlechaPrivateDetectImportBrowsersFunction : public ExtensionFunction {
++ public:
++  DECLARE_EXTENSION_FUNCTION("flechaPrivate.detectImportBrowsers", UNKNOWN)
++
++ protected:
++  ~FlechaPrivateDetectImportBrowsersFunction() override = default;
++  ResponseAction Run() override;
++
++ private:
++  void Done(std::string json);
++};
++
++class FlechaPrivateReadImportBrowserFunction : public ExtensionFunction {
++ public:
++  DECLARE_EXTENSION_FUNCTION("flechaPrivate.readImportBrowser", UNKNOWN)
++
++ protected:
++  ~FlechaPrivateReadImportBrowserFunction() override = default;
++  ResponseAction Run() override;
++
++ private:
++  void Done(std::string json);
 +};
 +
 +class FlechaPrivateStopLoadingFunction : public ExtensionFunction {
@@ -2640,10 +3004,10 @@ index 0000000000000000000000000000000000000000..1ac65e45e00ddeb309f4fcac76fdf8c0
 +}
 diff --git a/chrome/browser/flecha/flecha_frame_host.h b/chrome/browser/flecha/flecha_frame_host.h
 new file mode 100644
-index 0000000000000000000000000000000000000000..255535669b20e1da68d3d973668a65cb8520e124
+index 0000000000000000000000000000000000000000..d6b0704bcbe0bfaaad2345e82428ce8fe93d8455
 --- /dev/null
 +++ b/chrome/browser/flecha/flecha_frame_host.h
-@@ -0,0 +1,280 @@
+@@ -0,0 +1,288 @@
 +// Copyright 2026 The Flecha Authors
 +// Use of this source code is governed by a BSD-style license that can be
 +// found in the LICENSE file.
@@ -2725,6 +3089,11 @@ index 0000000000000000000000000000000000000000..255535669b20e1da68d3d973668a65cb
 +// Windows: the window buttons' height, and the least room above the page area
 +// for them when the shell shows no top bar.
 +inline constexpr int kFlechaWindowButtonsHeight = 34;
++
++// The first-run tour's window, and the pref that says it was seen.
++inline constexpr int kFlechaWelcomeWidth = 960;
++inline constexpr int kFlechaWelcomeHeight = 600;
++inline constexpr char kFlechaWelcomeDonePref[] = "flecha.welcome_done";
 +
 +struct FlechaFrameState {
 +  enum class Sidebar { kDocked, kHidden, kFloating };
@@ -2914,6 +3283,9 @@ index 0000000000000000000000000000000000000000..255535669b20e1da68d3d973668a65cb
 +  // Takes the keys in Shortcuts() from now on, and lets go of any others.
 +  virtual void UpdateShortcuts() = 0;
 +  // Whether the window is a Flechinha, Flecha's small window for one page.
++  // Makes this a small centred window with no buttons (the first-run tour),
++  // or returns it to its own size and marks the tour as seen.
++  virtual void SetWelcome(bool welcome) = 0;
 +  virtual bool IsFlechinha() const = 0;
 +  // The window itself.
 +  virtual BrowserWindowInterface* GetBrowserWindowInterface() = 0;
@@ -3159,6 +3531,26 @@ index 0000000000000000000000000000000000000000..0006ff108f4e5f494969ef633f4abb75
 +}
 +
 +#endif  // CHROME_BROWSER_FLECHA_FLECHA_SPACES_H_
+diff --git a/chrome/browser/prefs/browser_prefs.cc b/chrome/browser/prefs/browser_prefs.cc
+index 0476350e5654b8a439e45282c5813a24240a549e..e8a40b08b712de6b96fffcf25fa49726fb81c68d 100644
+--- a/chrome/browser/prefs/browser_prefs.cc
++++ b/chrome/browser/prefs/browser_prefs.cc
+@@ -67,6 +67,7 @@
+ #include "chrome/browser/preloading/preloading_prefs.h"
+ #include "chrome/browser/preloading/search_preload/search_preload_service.h"
+ #include "chrome/browser/printing/print_preview_sticky_settings.h"
++#include "chrome/browser/flecha/flecha_frame_host.h"
+ #include "chrome/browser/profiles/chrome_version_service.h"
+ #include "chrome/browser/profiles/profile_attributes_entry.h"
+ #include "chrome/browser/profiles/profile_attributes_storage.h"
+@@ -1986,6 +1987,7 @@ void RegisterLocalState(PrefRegistrySimple* registry) {
+ // Register prefs applicable to all profiles.
+ void RegisterProfilePrefs(user_prefs::PrefRegistrySyncable* registry,
+                           const std::string& locale) {
++  registry->RegisterBooleanPref(kFlechaWelcomeDonePref, false);
+   TRACE_EVENT0("browser", "chrome::RegisterProfilePrefs");
+   // User prefs. Please keep this list alphabetized.
+   AccessibilityLabelsService::RegisterProfilePrefs(registry);
 diff --git a/chrome/browser/renderer_context_menu/BUILD.gn b/chrome/browser/renderer_context_menu/BUILD.gn
 index 710da547b7e7d47f725beb60912a63e3bae34b73..fc86d01c943d85e497d21313e1e44af235b58a7d 100644
 --- a/chrome/browser/renderer_context_menu/BUILD.gn
@@ -3869,7 +4261,7 @@ index 07ff3566c110c9a29950070f9f773d00d70fbeea..b7dc20625d8ab050f523187b187b3b46
      ":browser_view_layout_delegate_impl",
      ":browser_widget",
 diff --git a/chrome/browser/ui/views/frame/browser_frame_view_win.cc b/chrome/browser/ui/views/frame/browser_frame_view_win.cc
-index 1928290402cc1b3d3bbddb8398c137df1ec04978..72a4a7449121e41384425b0193636673aea74eca 100644
+index 1928290402cc1b3d3bbddb8398c137df1ec04978..0f1fd830bd73216df724b725ca7b963674e73a67 100644
 --- a/chrome/browser/ui/views/frame/browser_frame_view_win.cc
 +++ b/chrome/browser/ui/views/frame/browser_frame_view_win.cc
 @@ -10,7 +10,7 @@
@@ -3948,7 +4340,7 @@ index 1928290402cc1b3d3bbddb8398c137df1ec04978..72a4a7449121e41384425b0193636673
      LayoutTitleBar();
    }
    LayoutClientView();
-@@ -728,22 +759,41 @@ void BrowserFrameViewWin::LayoutTitleBar() {
+@@ -728,22 +759,44 @@ void BrowserFrameViewWin::LayoutTitleBar() {
  void BrowserFrameViewWin::LayoutCaptionButtons() {
    TRACE_EVENT0("views.frame", "BrowserFrameViewWin::LayoutCaptionButtons");
  
@@ -3975,6 +4367,9 @@ index 1928290402cc1b3d3bbddb8398c137df1ec04978..72a4a7449121e41384425b0193636673
            ? (TitlebarHeight(false) - WindowTopY())
            : GetFrameHeight();
  
++  if (FlechaFrameView* flecha = GetActiveFlechaFrame()) {
++    caption_button_container_->SetVisible(!flecha->welcome());
++  }
 +  if (FlechaFrameView* flecha_frame = GetActiveFlechaFrame()) {
 +    // Over the top bar, which is under the browser view's layer: paint to a
 +    // layer too, see-through, so the bar's colour shows behind the symbols.
@@ -3997,7 +4392,7 @@ index 1928290402cc1b3d3bbddb8398c137df1ec04978..72a4a7449121e41384425b0193636673
    caption_button_container_->SetBounds(width() - preferred_size.width(),
                                         WindowTopY(), preferred_size.width(),
                                         height);
-@@ -752,7 +802,8 @@ void BrowserFrameViewWin::LayoutCaptionButtons() {
+@@ -752,7 +805,8 @@ void BrowserFrameViewWin::LayoutCaptionButtons() {
  void BrowserFrameViewWin::LayoutClientView() {
    client_view_bounds_ = GetLocalBounds();
    int top_inset = GetTopInset(false);
@@ -4054,19 +4449,20 @@ index 73a8db26c25b7848f6f51bf1ac9ebb89dd6fbae2..6781bee3f2c290a7190a289abb13ca66
      *override_titlebar_height = false;
      *titlebar_height = 0;
 diff --git a/chrome/browser/ui/views/frame/browser_view.cc b/chrome/browser/ui/views/frame/browser_view.cc
-index 928a723e2e2275985432ffdf32c8e2063d9477d4..b84d8c7202480f32308b25b9507c261bf95000ed 100644
+index 928a723e2e2275985432ffdf32c8e2063d9477d4..a434ae7bdb68451a5ef5a220580dc91e6b1f9703 100644
 --- a/chrome/browser/ui/views/frame/browser_view.cc
 +++ b/chrome/browser/ui/views/frame/browser_view.cc
-@@ -167,6 +167,8 @@
+@@ -167,6 +167,9 @@
  #include "chrome/browser/ui/views/frame/contents_separator.h"
  #include "chrome/browser/ui/views/frame/contents_web_view.h"
  #include "chrome/browser/ui/views/frame/custom_floating_corner.h"
++#include "chrome/browser/flecha/flecha_frame_host.h"
 +#include "chrome/browser/ui/views/frame/flecha_frame_view.h"
 +#include "chrome/browser/ui/views/frame/flecha_top_chrome.h"
  #include "chrome/browser/ui/views/frame/horizontal_tab_strip_region_view.h"
  #include "chrome/browser/ui/views/frame/layout/browser_view_layout.h"
  #include "chrome/browser/ui/views/frame/layout/browser_view_layout_delegate_impl.h"
-@@ -1428,6 +1430,11 @@ bool BrowserView::ShouldDrawTabStrokes() const {
+@@ -1428,6 +1431,11 @@ bool BrowserView::ShouldDrawTabStrokes() const {
  }
  
  bool BrowserView::ShouldDrawTabStrip() const {
@@ -4078,7 +4474,7 @@ index 928a723e2e2275985432ffdf32c8e2063d9477d4..b84d8c7202480f32308b25b9507c261b
    // Return false if this window does not normally display a tabstrip or if the
    // tabstrip is currently hidden, e.g. because we're in fullscreen.
    if (!WindowFeatureController::From(browser_)->SupportsWindowFeature(
-@@ -2262,9 +2269,18 @@ void BrowserView::FullscreenStateChanging() {
+@@ -2262,9 +2270,18 @@ void BrowserView::FullscreenStateChanging() {
    } else {
      ProcessFullscreen(IsFullscreen(), display::kInvalidDisplayId);
    }
@@ -4097,7 +4493,7 @@ index 928a723e2e2275985432ffdf32c8e2063d9477d4..b84d8c7202480f32308b25b9507c261b
  #if BUILDFLAG(IS_CHROMEOS)
    const auto* frame_view =
        views::AsViewClass<BrowserFrameViewChromeOS>(GetFrameView());
-@@ -3064,6 +3080,11 @@ void BrowserView::DisableTabStripEditingForTesting() {
+@@ -3064,6 +3081,11 @@ void BrowserView::DisableTabStripEditingForTesting() {
  }
  
  bool BrowserView::IsToolbarVisible() const {
@@ -4109,7 +4505,25 @@ index 928a723e2e2275985432ffdf32c8e2063d9477d4..b84d8c7202480f32308b25b9507c261b
  #if BUILDFLAG(IS_MAC)
    // Immersive full screen makes it possible to display the toolbar when
    // kShowFullscreenToolbar is not set.
-@@ -4662,6 +4683,18 @@ int BrowserView::NonClientHitTest(const gfx::Point& point) {
+@@ -4045,6 +4067,17 @@ bool BrowserView::GetSavedWindowPlacement(
+     gfx::Rect* bounds,
+     ui::mojom::WindowShowState* show_state) const {
+   chrome::GetSavedWindowBoundsAndShowState(browser_.get(), bounds, show_state);
++  // Flecha: a profile that hasn't seen the tour starts in its small window.
++  if (browser_->GetType() == BrowserWindowInterface::Type::TYPE_NORMAL &&
++      !FlechaFrameHost::CreatingFlechinha() &&
++      !browser_->GetProfile()->IsOffTheRecord() &&
++      !browser_->GetProfile()->GetPrefs()->GetBoolean(kFlechaWelcomeDonePref)) {
++    *bounds = display::Screen::Get()->GetPrimaryDisplay().work_area();
++    bounds->ClampToCenteredSize(
++        gfx::Size(kFlechaWelcomeWidth, kFlechaWelcomeHeight));
++    *show_state = ui::mojom::WindowShowState::kNormal;
++    return true;
++  }
+   // TODO(crbug.com/40092782): Generalize this code for app and non-app popups?
+   if (chrome::SavedBoundsAreContentBounds(browser_.get()) &&
+       browser_->GetType() == BrowserWindowInterface::Type::TYPE_POPUP) {
+@@ -4662,6 +4695,18 @@ int BrowserView::NonClientHitTest(const gfx::Point& point) {
    }
  #endif  // BUILDFLAG(IS_MAC)
  
@@ -4128,7 +4542,7 @@ index 928a723e2e2275985432ffdf32c8e2063d9477d4..b84d8c7202480f32308b25b9507c261b
    // Since the TabStrip only renders in some parts of the top of the window,
    // the un-obscured area is considered to be part of the non-client caption
    // area of the window. So we need to treat hit-tests in these regions as
-@@ -5119,6 +5152,14 @@ void BrowserView::AddedToWidget() {
+@@ -5119,6 +5164,14 @@ void BrowserView::AddedToWidget() {
    layout_views.top_container_separator = top_container_separator_;
    // LINT.ThenChange(//chrome/browser/ui/views/frame/layout/browser_view_layout.h:BrowserViewLayoutViews)
  
@@ -4145,15 +4559,19 @@ index 928a723e2e2275985432ffdf32c8e2063d9477d4..b84d8c7202480f32308b25b9507c261b
        std::move(layout_views)));
 diff --git a/chrome/browser/ui/views/frame/flecha_frame_view.cc b/chrome/browser/ui/views/frame/flecha_frame_view.cc
 new file mode 100644
-index 0000000000000000000000000000000000000000..4f6ee4703d200d925e5bdcaaece10770e8e4ef41
+index 0000000000000000000000000000000000000000..da9b27bca847b1191eacc0c32e055a20d0120aeb
 --- /dev/null
 +++ b/chrome/browser/ui/views/frame/flecha_frame_view.cc
-@@ -0,0 +1,811 @@
+@@ -0,0 +1,864 @@
 +// Copyright 2026 The Flecha Authors
 +// Use of this source code is governed by a BSD-style license that can be
 +// found in the LICENSE file.
 +
 +#include "chrome/browser/ui/views/frame/flecha_frame_view.h"
++
++#include "chrome/browser/profiles/profile.h"
++#include "components/prefs/pref_service.h"
++#include "ui/display/screen.h"
 +
 +#include <string>
 +#include <utility>
@@ -4595,10 +5013,59 @@ index 0000000000000000000000000000000000000000..4f6ee4703d200d925e5bdcaaece10770
 +      "flechaPrivate.onPeekChanged", std::move(args));
 +}
 +
++void FlechaFrameView::SetWelcome(bool welcome) {
++  if (state_.flechinha) {
++    return;
++  }
++  Profile* profile = Profile::FromBrowserContext(GetBrowserContext());
++  if (!welcome && !profile->IsOffTheRecord()) {
++    profile->GetPrefs()->SetBoolean(kFlechaWelcomeDonePref, true);
++  }
++  views::Widget* widget = browser_view_->GetWidget();
++  if (welcome_ == welcome || !widget) {
++    return;
++  }
++  welcome_ = welcome;
++  browser_view_->SetCanResize(!welcome);
++  browser_view_->SetCanMaximize(!welcome);
++  gfx::Rect work_area = display::Screen::Get()
++                            ->GetDisplayNearestWindow(widget->GetNativeWindow())
++                            .work_area();
++  if (welcome && widget->IsVisible()) {
++    welcome_restore_maximized_ = widget->IsMaximized();
++    welcome_restore_bounds_ = widget->GetRestoredBounds();
++    if (welcome_restore_maximized_) {
++      widget->Restore();
++    }
++    work_area.ClampToCenteredSize(
++        gfx::Size(kFlechaWelcomeWidth, kFlechaWelcomeHeight));
++    widget->SetBounds(work_area);
++  } else if (!welcome) {
++    // A first run has no earlier size to go back to.
++    if (welcome_restore_bounds_.IsEmpty()) {
++      work_area.ClampToCenteredSize(gfx::Size(1600, 1000));
++      welcome_restore_bounds_ = work_area;
++    }
++    widget->SetBounds(welcome_restore_bounds_);
++    welcome_restore_bounds_ = gfx::Rect();
++    if (welcome_restore_maximized_) {
++      widget->Maximize();
++    }
++  }
++  if (widget->non_client_view()) {
++    widget->non_client_view()->InvalidateLayout();
++  }
++}
++
 +void FlechaFrameView::AddedToWidget() {
 +  views::WebView::AddedToWidget();
 +  ApplyState();
 +  UpdateShortcuts();
++  Profile* profile = Profile::FromBrowserContext(GetBrowserContext());
++  if (!state_.flechinha && !profile->IsOffTheRecord() &&
++      !profile->GetPrefs()->GetBoolean(kFlechaWelcomeDonePref)) {
++    SetWelcome(true);
++  }
 +}
 +
 +void FlechaFrameView::RemovedFromWidget() {
@@ -4962,10 +5429,10 @@ index 0000000000000000000000000000000000000000..4f6ee4703d200d925e5bdcaaece10770
 +END_METADATA
 diff --git a/chrome/browser/ui/views/frame/flecha_frame_view.h b/chrome/browser/ui/views/frame/flecha_frame_view.h
 new file mode 100644
-index 0000000000000000000000000000000000000000..7dc4c3831f3ea50ce2c984fcd26f557f1612f64d
+index 0000000000000000000000000000000000000000..704ddf3060fdd0e5cbe8a06abd7a2c5d5e016ea1
 --- /dev/null
 +++ b/chrome/browser/ui/views/frame/flecha_frame_view.h
-@@ -0,0 +1,207 @@
+@@ -0,0 +1,213 @@
 +// Copyright 2026 The Flecha Authors
 +// Use of this source code is governed by a BSD-style license that can be
 +// found in the LICENSE file.
@@ -5043,6 +5510,8 @@ index 0000000000000000000000000000000000000000..7dc4c3831f3ea50ce2c984fcd26f557f
 +  // the shell asks for one (FlechaFrameState::top_bar).
 +  views::View* top_bar_view() { return top_bar_view_.view(); }
 +
++  bool welcome() const { return welcome_; }
++
 +  const FlechaFrameState& state() const { return state_; }
 +
 +  // Whether the frame lays out the window (the shell is loaded).
@@ -5066,6 +5535,7 @@ index 0000000000000000000000000000000000000000..7dc4c3831f3ea50ce2c984fcd26f557f
 +  content::WebContents* GetFrameContents() override;
 +  content::WebContents* GetTopBarContents() override;
 +  bool IsActiveWindow() const override;
++  void SetWelcome(bool welcome) override;
 +  bool IsFlechinha() const override;
 +  BrowserWindowInterface* GetBrowserWindowInterface() override;
 +  void SetFrameState(const FlechaFrameState& state) override;
@@ -5147,6 +5617,9 @@ index 0000000000000000000000000000000000000000..7dc4c3831f3ea50ce2c984fcd26f557f
 +  std::unique_ptr<Peek> peek_;
 +
 +  raw_ptr<BrowserView> browser_view_;
++  bool welcome_ = false;
++  gfx::Rect welcome_restore_bounds_;
++  bool welcome_restore_maximized_ = false;
 +  // Owned by `browser_view_`, like this view; it may go first.
 +  views::ViewTracker background_view_;
 +  views::ViewTracker peek_view_;
@@ -5877,10 +6350,10 @@ index acdc60b6758544aabf434ead3a754b9b1c74e4c3..6bfabf0b4b1e9242302b7ef95d8e0751
      "language_settings_private.webidl",
 diff --git a/chrome/common/extensions/api/flecha_private.idl b/chrome/common/extensions/api/flecha_private.idl
 new file mode 100644
-index 0000000000000000000000000000000000000000..23a4438ec7587315943089979e895cf1f1b197c2
+index 0000000000000000000000000000000000000000..6909cd035405678cbaac2ec4887d8de03c2b289d
 --- /dev/null
 +++ b/chrome/common/extensions/api/flecha_private.idl
-@@ -0,0 +1,328 @@
+@@ -0,0 +1,338 @@
 +// Copyright 2026 The Flecha Authors
 +// Use of this source code is governed by a BSD-style license that can be
 +// found in the LICENSE file.
@@ -6029,7 +6502,17 @@ index 0000000000000000000000000000000000000000..23a4438ec7587315943089979e895cf1
 +  };
 +  callback UpdateStatusCallback = void (DOMString status);
 +
++  callback JsonCallback = void (DOMString json);
++
 +  interface Functions {
++    // Windows: other browsers' bookmarks and history, as JSON.
++    static void detectImportBrowsers(JsonCallback callback);
++    static void readImportBrowser(DOMString id, JsonCallback callback);
++
++    // The first-run tour: makes the calling frame's window small and without
++    // buttons, or returns it to its size.
++    static void setWelcomeWindow(boolean welcome, optional DoneCallback callback);
++
 +    // Downloads an update newer than this build and checks its hash. Status:
 +    // "ready", "current", "unsupported", "busy" or "failed".
 +    static void prepareUpdate(

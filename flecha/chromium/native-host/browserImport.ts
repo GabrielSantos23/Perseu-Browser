@@ -7,6 +7,7 @@ import { promisify } from 'node:util';
 import type { DetectedBrowser, HistoryEntry } from '../shared/types';
 import { arcSidebarPath, readArcSidebar, type ArcImport, type ImportNode } from './arcImport';
 import { parseBookmarksHtml } from './bookmarksHtml';
+import { MAX_BOOKMARKS, chromiumBookmarks, cleanEntry, firefoxBookmarks, folder, newTidy, type FirefoxBookmark } from '../shared/importParse';
 import type { BrowserImportData, ImportCookie } from '../shared/importApply';
 
 /**
@@ -23,10 +24,6 @@ const run = promisify(execFile);
 
 /** Pages taken from each profile's history, newest first. Flecha keeps 5,000 in all. */
 const HISTORY_ROWS = 5000;
-/** Bookmarks past this many are left behind: no sidebar can usefully hold more. */
-const MAX_BOOKMARKS = 2000;
-/** Folders nested deeper than this are flattened into their parent. */
-const MAX_DEPTH = 8;
 
 /** One profile of a browser, with whichever of its files exist. */
 interface Profile {
@@ -112,30 +109,6 @@ function chromiumProfileNames(root: string): Record<string, string> {
   } catch {
     return {};
   }
-}
-
-/** The bookmarks bar becomes the top level; "Other" and "Mobile" bookmarks get folders of their own. */
-function chromiumBookmarks(documents: string[]): ImportNode[] {
-  const bar: ImportNode[] = [];
-  const other: ImportNode[] = [];
-  const mobile: ImportNode[] = [];
-  for (const json of documents) {
-    const roots = JSON.parse(json)?.roots ?? {};
-    bar.push(...chromiumChildren(roots.bookmark_bar));
-    other.push(...chromiumChildren(roots.other));
-    mobile.push(...chromiumChildren(roots.synced));
-  }
-  return [...bar, folder('Other Bookmarks', other), folder('Mobile Bookmarks', mobile)];
-}
-
-function chromiumChildren(node: any): ImportNode[] {
-  return Array.isArray(node?.children) ? node.children.flatMap(chromiumNode) : [];
-}
-
-function chromiumNode(node: any): ImportNode[] {
-  if (node?.type === 'url' && typeof node.url === 'string') return [{ kind: 'tab', url: node.url, title: String(node.name || node.url) }];
-  if (node?.type === 'folder') return [folder(String(node.name || 'Untitled folder'), chromiumChildren(node))];
-  return [];
 }
 
 /** Arc is Chromium underneath, but its Spaces and pinned tabs live in its own sidebar file. */
@@ -409,44 +382,8 @@ function firefoxSource(): BrowserSource {
   };
 }
 
-interface FirefoxBookmark {
-  id: number;
-  parent: number;
-  /** 1 bookmark, 2 folder, 3 separator. */
-  type: number;
-  title: string | null;
-  guid: string;
-  url: string | null;
-}
-
 const FIREFOX_BOOKMARKS = `SELECT b.id AS id, b.parent AS parent, b.type AS type, b.title AS title, b.guid AS guid, p.url AS url
   FROM moz_bookmarks b LEFT JOIN moz_places p ON p.id = b.fk ORDER BY b.parent, b.position`;
-
-/** The toolbar becomes the top level; the menu, unsorted and mobile roots get folders. Tags are skipped. */
-function firefoxBookmarks(rows: FirefoxBookmark[]): ImportNode[] {
-  const children = new Map<number, FirefoxBookmark[]>();
-  for (const row of rows) {
-    const list = children.get(row.parent) ?? [];
-    list.push(row);
-    children.set(row.parent, list);
-  }
-  const nodes = (parent: number): ImportNode[] =>
-    (children.get(parent) ?? []).flatMap((row): ImportNode[] => {
-      if (row.type === 1 && row.url) return [{ kind: 'tab', url: row.url, title: row.title || row.url }];
-      if (row.type === 2) return [folder(row.title || 'Untitled folder', nodes(row.id))];
-      return [];
-    });
-  const root = (guid: string) => {
-    const row = rows.find((r) => r.guid === guid);
-    return row ? nodes(row.id) : [];
-  };
-  return [
-    ...root('toolbar_____'),
-    folder('Bookmarks Menu', root('menu________')),
-    folder('Other Bookmarks', root('unfiled_____')),
-    folder('Mobile Bookmarks', root('mobile______')),
-  ];
-}
 
 interface FirefoxCookie {
   host: string;
@@ -766,51 +703,10 @@ export function readBookmarksHtml(html: string, fileName = 'the file'): BrowserI
 
 // ---- helpers ---------------------------------------------------------------
 
-/**
- * Keeps web bookmarks only, each URL once, drops empty folders and stops at
- * MAX_BOOKMARKS. Shared across a browser's profiles so the cap covers them all.
- */
-function newTidy() {
-  const seen = new Set<string>();
-  const tidy = {
-    skipped: 0,
-    get count() {
-      return seen.size;
-    },
-    run(nodes: ImportNode[], depth = 0): ImportNode[] {
-      return nodes.flatMap((n): ImportNode[] => {
-        if (n.kind === 'tab') {
-          if (!/^https?:/i.test(n.url) || seen.has(n.url)) return [];
-          if (seen.size >= MAX_BOOKMARKS) {
-            tidy.skipped++;
-            return [];
-          }
-          seen.add(n.url);
-          return [n];
-        }
-        if (depth >= MAX_DEPTH) return tidy.run(n.children, depth);
-        const children = tidy.run(n.children, depth + 1);
-        return children.length ? [{ ...n, children }] : [];
-      });
-    },
-  };
-  return tidy;
-}
-
 /** Runs `make` the first time it's asked for, then hands back the same promise. */
 function once<T>(make: () => Promise<T>): () => Promise<T> {
   let made: Promise<T> | undefined;
   return () => (made ??= make());
-}
-
-function folder(name: string, children: ImportNode[]): ImportNode {
-  return { kind: 'folder', name, children };
-}
-
-/** Databases hand back nulls and odd types; History only wants plain values. */
-function cleanEntry(row: HistoryEntry): HistoryEntry {
-  const url = String(row.url ?? '');
-  return { url, title: String(row.title || url), visits: Number(row.visits) || 1, lastVisit: Number(row.lastVisit) };
 }
 
 /** Runs `sql` against a copy of `file`, since the browser may have it open and locked. */

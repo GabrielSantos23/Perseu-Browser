@@ -18,7 +18,7 @@ function copyStatic() {
   // Lets the shell load in an older stock browser (e.g. Helium on Chromium 157) while prototyping its UI.
   if (process.env.FLECHA_MIN_CHROME) manifest.minimum_chrome_version = process.env.FLECHA_MIN_CHROME;
   fs.writeFileSync(path.join(out, 'manifest.json'), JSON.stringify(manifest, null, 2));
-  for (const f of fs.readdirSync(ui)) if (f.endsWith(".css") || f.endsWith(".png")) fs.copyFileSync(path.join(ui, f), path.join(out, f));
+  for (const f of fs.readdirSync(ui)) if (f.endsWith(".css") || f.endsWith(".png") || f.endsWith(".webp")) fs.copyFileSync(path.join(ui, f), path.join(out, f));
   fs.copyFileSync(
     path.join(root, 'node_modules/@fontsource-variable/jetbrains-mono/files/jetbrains-mono-latin-wght-normal.woff2'),
     path.join(out, 'fonts/jetbrains-mono.woff2'),
