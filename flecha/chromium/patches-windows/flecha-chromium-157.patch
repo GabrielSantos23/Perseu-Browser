@@ -929,7 +929,7 @@ index 0000000000000000000000000000000000000000..93b4a58ca39e929f7070f16d7eeae64b
 +#endif  // CHROME_BROWSER_EXTENSIONS_API_FLECHA_PRIVATE_FLECHA_BROWSER_IMPORT_H_
 diff --git a/chrome/browser/extensions/api/flecha_private/flecha_private_api.cc b/chrome/browser/extensions/api/flecha_private/flecha_private_api.cc
 new file mode 100644
-index 0000000000000000000000000000000000000000..d222b94a1c144e5c5b44fcf4254c5271428dd02b
+index 0000000000000000000000000000000000000000..3bdfdb99c8f79c0f01d17abe18e03bcb5459863a
 --- /dev/null
 +++ b/chrome/browser/extensions/api/flecha_private/flecha_private_api.cc
 @@ -0,0 +1,1118 @@
@@ -1103,7 +1103,7 @@ index 0000000000000000000000000000000000000000..d222b94a1c144e5c5b44fcf4254c5271
 +  }
 +  state.background = *background;
 +  if (params->state.top_bar) {
-+    state.top_bar = std::clamp(*params->state.top_bar, 0, 96);
++    state.top_bar = std::clamp(*params->state.top_bar, -1, 96);
 +  }
 +  if (params->state.top_bar_foreground) {
 +    state.top_bar_foreground = ParseColor(*params->state.top_bar_foreground);
@@ -3004,10 +3004,10 @@ index 0000000000000000000000000000000000000000..1ac65e45e00ddeb309f4fcac76fdf8c0
 +}
 diff --git a/chrome/browser/flecha/flecha_frame_host.h b/chrome/browser/flecha/flecha_frame_host.h
 new file mode 100644
-index 0000000000000000000000000000000000000000..d6b0704bcbe0bfaaad2345e82428ce8fe93d8455
+index 0000000000000000000000000000000000000000..59588afd0f2399db185e56599f817dbc7250faf5
 --- /dev/null
 +++ b/chrome/browser/flecha/flecha_frame_host.h
-@@ -0,0 +1,288 @@
+@@ -0,0 +1,296 @@
 +// Copyright 2026 The Flecha Authors
 +// Use of this source code is governed by a BSD-style license that can be
 +// found in the LICENSE file.
@@ -3125,6 +3125,10 @@ index 0000000000000000000000000000000000000000..d6b0704bcbe0bfaaad2345e82428ce8f
 +  // The room above the page area for the top bar. Windows keeps room for the
 +  // window buttons even without a top bar.
 +  int TopBarRoom() const {
++    // Retracted by the shell: the page takes the room.
++    if (top_bar < 0) {
++      return 0;
++    }
 +#if BUILDFLAG(IS_WIN)
 +    if (!fullscreen) {
 +      return std::max(top_bar, kFlechaWindowButtonsHeight);
@@ -3198,7 +3202,11 @@ index 0000000000000000000000000000000000000000..d6b0704bcbe0bfaaad2345e82428ce8f
 +    }
 +    gfx::Rect page(window_size);
 +    page.Inset(PageInsets());
-+    return gfx::Rect(page.right() - width, kFlechaGap, width, TopBarRoom());
++    // With the bar retracted they float over the page's corner, so the window
++    // can always be closed.
++    return gfx::Rect(page.right() - width, kFlechaGap, width,
++                     top_bar < 0 && !fullscreen ? kFlechaWindowButtonsHeight
++                                                : TopBarRoom());
 +  }
 +
 +  bool TrafficLightsVisible() const {

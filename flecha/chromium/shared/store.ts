@@ -99,7 +99,7 @@ export class Store {
 
     const index = space.today.indexOf(tabId);
     space.today.splice(index, 1);
-    this.archive(tab);
+    this.archive(tab, true);
     delete this.state.tabs[tabId];
     if (space.activeTabId === tabId) {
       space.activeTabId = space.today[Math.min(index, space.today.length - 1)];
@@ -689,10 +689,14 @@ export class Store {
     );
   }
 
-  private archive(tab: TabInfo | undefined) {
+  private archive(tab: TabInfo | undefined, closed = false) {
     if (!tab || tab.url === 'about:blank') return;
-    this.state.archive.unshift({ url: tab.url, title: tab.title, closedAt: Date.now() });
-    this.state.archive.length = Math.min(this.state.archive.length, ARCHIVE_LIMIT);
+    this.state.archive.unshift({ url: tab.url, title: tab.title, closedAt: Date.now(), ...(closed ? { closed } : {}) });
+    // Closed tabs make room first, so a burst of closing can't push out what was archived.
+    if (this.state.archive.length > ARCHIVE_LIMIT) {
+      const oldestClosed = this.state.archive.findLastIndex((a) => a.closed);
+      this.state.archive.splice(oldestClosed < 0 ? ARCHIVE_LIMIT : oldestClosed, 1);
+    }
   }
 
   private load(): BrowserState | undefined {

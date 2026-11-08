@@ -41,14 +41,17 @@ on('site-icons', (icons: Record<string, string>) => {
 });
 
 // The frame page lays its window out: the background says how, this page adds the colour.
-let frameState: { sidebar: chrome.flechaPrivate.SidebarMode; overlay: boolean } | undefined;
+let frameState: { sidebar: chrome.flechaPrivate.SidebarMode; overlay: boolean; topBarPeek?: boolean } | undefined;
 const windowId = surface === 'window' && framed ? chrome.flechaPrivate.getWindowId() : undefined;
 function applyFrame() {
   if (!windowId || !frameState || !lastState) return;
   const background = spaceTint(lastState.tint, systemDark.matches);
   // The top bar (topbar.ts), in the page's colour; the window buttons take its text colour.
   const topBarForeground = topBarColors(lastState.siteColor, systemDark.matches).fg;
-  void windowId.then((id) => chrome.flechaPrivate.setFrame({ ...frameState!, background, topBar: TOP_BAR_HEIGHT, topBarForeground }, id));
+  const { topBarPeek, ...layout } = frameState;
+  // With the address in the sidebar the bar stays away until the pointer asks for it (-1: no room for it; the window buttons float over the page).
+  const topBar = lastState.addressInSidebar && !topBarPeek ? -1 : TOP_BAR_HEIGHT;
+  void windowId.then((id) => chrome.flechaPrivate.setFrame({ ...layout, background, topBar, topBarForeground }, id));
 }
 on('frame', (state) => {
   frameState = state;
@@ -120,6 +123,8 @@ const api: FlechaApi = {
   spaceMenu: (id) => void showMenu('spaceMenu', id),
   toggleFolder: cmd('toggleFolder'),
   renameFolder: cmd('renameFolder'),
+  deleteFolder: cmd('deleteFolder'),
+  setTopBarPeek: cmd('setTopBarPeek'),
   moveTab: cmd('moveTab'),
   clearToday: cmd('clearToday'),
   // Brings over Flecha's own Electron state (~/Library/Application Support/Flecha/flecha-state.json).

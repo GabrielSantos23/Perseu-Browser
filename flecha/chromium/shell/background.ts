@@ -203,12 +203,13 @@ async function start() {
   // ---- the window frame, as the Electron spike's Browser.layout() --------------
   // The frame page applies it (chrome.flechaPrivate.setFrame), since only a page knows
   // whether the system is in dark mode for the background colour.
-  const frame = { paletteOpen: false, sidebarPeek: false, tabDragging: false, overlays: new Set<string>() };
+  const frame = { paletteOpen: false, sidebarPeek: false, topBarPeek: false, tabDragging: false, overlays: new Set<string>() };
+  let topBarPeekTimer: ReturnType<typeof setTimeout> | undefined;
   function sendFrame() {
     const sidebar: chrome.flechaPrivate.SidebarMode = store.state.sidebarVisible ? 'docked' : frame.sidebarPeek ? 'floating' : 'hidden';
     // The frame covers the whole window while it draws over the page.
     const overlay = frame.paletteOpen || frame.tabDragging || frame.overlays.size > 0 || !store.state.onboarded;
-    broadcast('frame', { sidebar, overlay });
+    broadcast('frame', { sidebar, overlay, topBarPeek: frame.topBarPeek });
   }
   const hasFrame = () => typeof chrome.flechaPrivate?.setFrame === 'function';
   /** During the welcome tour, a shortcut is reported to it instead of acting. Returns whether it was. */
@@ -729,6 +730,7 @@ async function start() {
     }),
     toggleFolder: (id: string) => store.toggleFolder(id),
     renameFolder: (id: string, name: string) => store.renameFolder(id, name),
+    deleteFolder: spacesOnly((id: string, keepTabs: boolean) => void unload(store.deleteFolder(String(id), !!keepTabs))),
     moveTab: (id: string, target: DropTarget) => store.moveTab(id, target),
     clearToday: () => void unload(store.clearToday()),
     renameTab: (id: string, title: string) => store.updateTab(id, { customTitle: String(title).trim() || undefined }),
@@ -758,6 +760,17 @@ async function start() {
       if (store.state.sidebarVisible || frame.sidebarPeek === !!peek) return;
       frame.sidebarPeek = !!peek;
       sendState();
+    },
+    // The pointer crosses between pages (edge strip, top bar) on its way, so hiding waits a moment.
+    setTopBarPeek: (peek: boolean, delay = 350) => {
+      clearTimeout(topBarPeekTimer);
+      const apply = (value: boolean) => {
+        if (frame.topBarPeek === value) return;
+        frame.topBarPeek = value;
+        sendFrame();
+      };
+      if (peek) apply(true);
+      else topBarPeekTimer = setTimeout(() => apply(false), Number(delay));
     },
     setTabDragging: (dragging: boolean) => {
       frame.tabDragging = !!dragging;

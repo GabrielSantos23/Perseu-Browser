@@ -97,6 +97,10 @@ api.onFlash((message) => {
   }, 1600);
 });
 
+// Retractable when the address lives in the sidebar (edge strip: ui/app.ts).
+document.documentElement.addEventListener('mouseenter', () => state?.addressInSidebar && cmd('setTopBarPeek')(true));
+document.documentElement.addEventListener('mouseleave', () => state?.addressInSidebar && cmd('setTopBarPeek')(false));
+
 $('back').onclick = () => api.back();
 $('forward').onclick = () => api.forward();
 $('reload').onclick = () => (state?.nav.loading ? api.stop() : api.reload());

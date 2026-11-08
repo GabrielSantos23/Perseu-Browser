@@ -57,7 +57,8 @@ export function setupOnboarding(api: FlechaApi, h: H) {
   let drawn = '';
   /** The step the last draw showed; its entrance animation only plays when the step changes. */
   let shownStep: Step | undefined;
-  let welcome = false;
+  // Unknown until the first render: a window that started small must hear "false" too.
+  let welcome: boolean | undefined;
 
   const space = () => state?.spaces.find((s) => s.id === state!.activeSpaceId);
   const keys = (id: string) => state?.shortcuts[id] || '';

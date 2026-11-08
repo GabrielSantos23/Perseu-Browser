@@ -101,6 +101,7 @@ function favicon(tab: TabInfo) {
 const blockedIcons = new Set<string>();
 
 // The bar above the page (topbar.ts) needs the frame patch (flecha_frame_view.cc).
+let lastStripSpace: string | undefined;
 const HAS_TOP_BAR = typeof chrome !== 'undefined' && typeof chrome.flechaPrivate?.setFrame === 'function';
 document.documentElement.dataset.os = /Mac/.test(navigator.platform) ? 'mac' : 'other';
 
@@ -208,7 +209,9 @@ function render(s: UiState) {
     $('today').replaceChildren(...todayRows(s, space));
   }
 
-  $('spaces').replaceChildren(
+  const spacesStrip = $('spaces');
+  const spacesScroll = spacesStrip.scrollLeft;
+  spacesStrip.replaceChildren(
     ...s.spaces.map((sp) =>
       h(
         'button',
@@ -227,6 +230,11 @@ function render(s: UiState) {
       ),
     ),
   );
+
+  // Rebuilding resets the scroll; only a change of Space moves it, to show the active one.
+  spacesStrip.scrollLeft = spacesScroll;
+  if (space.id !== lastStripSpace) spacesStrip.querySelector('.active')?.scrollIntoView({ block: 'nearest', inline: 'nearest' });
+  lastStripSpace = space.id;
 
   if (!palette.hidden) updatePalette();
   if (!archivePanel.hidden) renderArchive();
@@ -298,6 +306,19 @@ function originOf(url: string) {
   }
 }
 
+async function folderMenu(folderId: string, name: HTMLElement, current: string, hasTabs: boolean) {
+  const picked = await api.popupMenu?.([
+    { id: 'rename', label: 'Rename' },
+    { separator: true },
+    ...(hasTabs ? [{ id: 'keep', label: 'Delete Folder, Keep Tabs' }, { id: 'all', label: 'Delete Folder and Tabs' }] : [{ id: 'keep', label: 'Delete Folder' }]),
+  ]);
+  if (picked === 'keep' || picked === 'all') return api.deleteFolder(folderId, picked === 'keep');
+  if (picked !== 'rename') return;
+  // The keys go to the name being edited, so this page takes the focus back from the menu.
+  if (HAS_TOP_BAR) await chrome.flechaPrivate.focus('frame');
+  editInline(name, current, (value) => api.renameFolder(folderId, value));
+}
+
 function renderNode(node: PinnedNode, space: Space, folderId: string | undefined): HTMLElement {
   if (node.kind === 'tab') {
     const tab = state!.tabs[node.tabId];
@@ -316,6 +337,10 @@ function renderNode(node: PinnedNode, space: Space, folderId: string | undefined
       ondblclick: (e: Event) => {
         e.stopPropagation();
         editInline(name, node.name, (value) => api.renameFolder(node.id, value));
+      },
+      oncontextmenu: (e: Event) => {
+        e.preventDefault();
+        void folderMenu(node.id, name, node.name, node.children.length > 0);
       },
     },
     h('span', { class: 'chevron' }, icon('chevron')),
@@ -659,7 +684,11 @@ let extensions: ExtensionsView = { items: [], collapsed: false };
 /** Opens beside the sidebar, level with the button, as a toolbar button's popup hangs under it. */
 function openExtension(button: HTMLElement, id: string, name: string) {
   const row = button.getBoundingClientRect();
-  const anchor = { x: Math.round($('sidebar').getBoundingClientRect().right) + 6, y: Math.round(row.top), width: 1, height: Math.round(row.height) };
+  // From the site panel it takes the panel's place, wherever that was opened.
+  const panel = sitePanel.contains(button) ? sitePanel.getBoundingClientRect() : undefined;
+  const anchor = panel
+    ? { x: Math.round(panel.left), y: Math.round(panel.top), width: 1, height: 1 }
+    : { x: Math.round($('sidebar').getBoundingClientRect().right) + 6, y: Math.round(row.top), width: 1, height: Math.round(row.height) };
   toggleSitePanel(false);
   api.openExtension(id, name, anchor);
 }
@@ -1180,7 +1209,7 @@ function updatePalette() {
       items.push({ group: 'History', icon: entry.url, label: entry.title || entry.url, sub: host(entry.url), run: () => open(entry.url) });
     }
     const reopen = paletteMode === 'split' ? api.splitNew : api.newTab;
-    for (const item of state.archive.filter((a) => !seen.has(a.url) && matches(a.title, a.url)).slice(0, 5)) {
+    for (const item of archivedTabs().filter((a) => !seen.has(a.url) && matches(a.title, a.url)).slice(0, 5)) {
       seen.add(item.url);
       items.push({ group: 'Archive', icon: item.url, label: item.title || item.url, sub: host(item.url), run: () => reopen(item.url) });
     }
@@ -1326,6 +1355,8 @@ $('peek-close').onclick = () => api.closePeek();
 
 const downloadsPanel = $('downloads-panel');
 const archivePanel = $('archive-panel');
+// What was closed by hand is only for Reopen Closed Tab.
+const archivedTabs = () => (state?.archive ?? []).filter((a) => !a.closed);
 const timeAgo = new Intl.RelativeTimeFormat('en', { numeric: 'auto', style: 'short' });
 
 function archivedWhen(closedAt: number) {
@@ -1336,7 +1367,7 @@ function archivedWhen(closedAt: number) {
 }
 
 function renderArchive() {
-  const items = state?.archive ?? [];
+  const items = archivedTabs();
   $('archive-list').replaceChildren(
     ...(items.length
       ? items.map((item) =>
@@ -1437,8 +1468,9 @@ const splitDrop = $('split-drop');
 function showSplitDrop(tabId: string) {
   const space = state?.spaces.find((s) => s.id === state!.activeSpaceId);
   if (!space?.activeTabId || space.activeTabId === tabId || (space.split?.includes(tabId) && space.split.includes(space.activeTabId))) return;
-  // Where the page is: right of the docked sidebar, else the whole window inside the gap.
-  const left = document.body.dataset.sidebar === 'docked' ? $('sidebar').offsetWidth : 8;
+  // Where the page is, beside the sidebar: over a floating one, drops would never reach its tabs.
+  const sidebarSide = document.body.dataset.sidebar;
+  const left = sidebarSide === 'docked' ? $('sidebar').offsetWidth : sidebarSide === 'floating' ? $('sidebar').offsetLeft + $('sidebar').offsetWidth + 8 : 8;
   Object.assign(splitDrop.style, { left: `${left}px`, top: '8px', right: '8px', bottom: '8px' });
   splitDrop.hidden = false;
   api.setTabDragging(true);
@@ -1496,6 +1528,10 @@ function leavePeek(e: MouseEvent) {
   };
   peekCloseTimer = window.setTimeout(leaveWhenIdle, 300);
 }
+$('top-edge').addEventListener('mouseenter', () => api.setTopBarPeek(true));
+$('top-edge').addEventListener('mouseleave', () => api.setTopBarPeek(false));
+// A wheel moves the row of Spaces sideways when they don't all fit.
+$('spaces').addEventListener('wheel', (e) => ($('spaces').scrollLeft += e.deltaY || e.deltaX), { passive: true });
 peekEdge.addEventListener('mouseenter', () => {
   keepPeek();
   api.setSidebarPeek(true);

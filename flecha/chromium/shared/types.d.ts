@@ -57,6 +57,8 @@ export interface ArchivedTab {
   url: string;
   title: string;
   closedAt: number;
+  /** Closed by hand: kept only for Reopen Closed Tab, not listed as archived. */
+  closed?: boolean;
 }
 
 export interface HistoryEntry {
@@ -486,6 +488,8 @@ export interface FlechaApi {
   spaceMenu(spaceId: string): void;
   toggleFolder(folderId: string): void;
   renameFolder(folderId: string, name: string): void;
+  deleteFolder(folderId: string, keepTabs: boolean): void;
+  setTopBarPeek(peek: boolean): void;
   moveTab(tabId: string, target: DropTarget): void;
   clearToday(): void;
   /** Brings over the Spaces and tabs of Flecha's Electron version. */

@@ -112,7 +112,7 @@ body[data-address='top'] .address-only {
   flex: none;
   display: grid;
   /* Equal ends keep the Spaces centred. */
-  grid-template-columns: 58px 1fr 58px;
+  grid-template-columns: 58px minmax(0, 1fr) 58px;
   align-items: center;
   gap: var(--space-1);
   height: 28px;
@@ -631,8 +631,9 @@ body[data-address='top'] .address-only {
 
 .today-line {
   flex: 1;
-  height: 1px;
-  background: color-mix(in srgb, var(--text) 12%, transparent);
+  height: 6px;
+  background: color-mix(in srgb, var(--text) 24%, transparent);
+  -webkit-mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='6'%3E%3Cpath d='M0 3Q3 0 6 3T12 3' fill='none' stroke='%23000' stroke-width='1.25'/%3E%3C/svg%3E") repeat-x left center / 12px 6px;
 }
 
 .divider-button {
@@ -986,7 +987,8 @@ footer {
 #spaces {
   min-width: 0;
   display: flex;
-  justify-content: center;
+  /* safe: with too many to fit, start at the first one instead of cutting it off. */
+  justify-content: safe center;
   gap: 2px;
   overflow-x: auto;
   scrollbar-width: none;
@@ -2183,6 +2185,21 @@ footer {
 }
 
 /* ---- hidden & floating sidebar ------------------------------------------ */
+
+#top-edge {
+  display: none;
+  position: fixed;
+  inset: 0 0 auto 0;
+  height: 8px;
+}
+
+[data-frame] body[data-address='sidebar'] #top-edge {
+  display: block;
+}
+
+[data-frame] body[data-address='sidebar'][data-sidebar='docked'] #top-edge {
+  left: 260px;
+}
 
 #edge {
   display: none;
