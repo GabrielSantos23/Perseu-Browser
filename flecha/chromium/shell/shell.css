@@ -156,6 +156,16 @@
   transform: translateY(-70%) rotate(-45deg);
 }
 
+.shell-menu-item:has(.shell-menu-keys) {
+  display: flex;
+  justify-content: space-between;
+  gap: 32px;
+}
+
+.shell-menu-keys {
+  opacity: 0.65;
+}
+
 .shell-menu-separator {
   height: 1px;
   margin: 4px 0;
@@ -246,6 +256,56 @@
 [data-incognito] #empty-top,
 [data-incognito] .empty-hints span:nth-child(2) {
   display: none !important;
+}
+
+/* The Spaces are hidden here, and the end group would slide into their column. */
+[data-incognito] .footer-end {
+  grid-column: 3;
+}
+
+#space-incognito,
+#home-incognito {
+  display: none;
+}
+
+[data-incognito] #home-incognito {
+  display: grid;
+  justify-items: center;
+  gap: 8px;
+  max-width: 28rem;
+  text-align: center;
+}
+
+#home-incognito strong {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 16px;
+  font-weight: 600;
+  color: var(--text);
+}
+
+#home-incognito svg {
+  width: 18px;
+  height: 18px;
+}
+
+#home-incognito p {
+  text-wrap: balance;
+  margin: 0;
+  font-size: 13px;
+  line-height: 1.45;
+  color: var(--text-2);
+}
+
+[data-incognito] #space-incognito {
+  display: grid;
+  place-items: center;
+}
+
+[data-incognito] #space-incognito svg {
+  width: 16px;
+  height: 16px;
 }
 
 /* The Space's name says where you are; it isn't yours to rename. */

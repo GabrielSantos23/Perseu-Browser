@@ -233,6 +233,9 @@ declare namespace chrome.flechaPrivate {
    */
   function showFindBar(windowId?: number): Promise<void>;
 
+  /** Runs one of the browser's own commands, by the names in FlechaPrivateRunBrowserCommandFunction. */
+  function runBrowserCommand(command: string, windowId?: number): Promise<void>;
+
   /** Whether Flecha is the default browser, and whether it can make itself so (patch 0027). */
   interface DefaultBrowserState {
     isDefault: boolean;

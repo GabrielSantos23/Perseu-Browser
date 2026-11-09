@@ -195,6 +195,14 @@ button {
   }
 }
 
+/* Beside the window buttons, whatever the site group in the middle does. */
+#app-menu {
+  position: absolute;
+  right: calc(var(--window-buttons) + 2px);
+  top: 50%;
+  transform: translateY(-50%);
+}
+
 button:focus-visible {
   outline: 2px solid color-mix(in srgb, var(--site-fg, #1d1d1f) 60%, transparent);
   outline-offset: 1px;

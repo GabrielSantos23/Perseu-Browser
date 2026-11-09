@@ -22,4 +22,6 @@ export type MenuRun =
   /** Asks first, in the page, then signs out of everything in the Space (separate cookies). */
   | { clearSpaceData: string }
   /** chrome.management.uninstall wants the click's user gesture, which only the page has. */
-  | { uninstallExtension: string };
+  | { uninstallExtension: string }
+  /** A command of the browser's own, in the window the menu is in (flechaPrivate.runBrowserCommand). */
+  | { browser: string };

@@ -7,7 +7,7 @@ import type { AskOptions } from './lib/tabManager';
 
 /** A menu as data, like Electron's menu templates: items carry whatever `run` the caller picks. */
 export type MenuEntry<T> =
-  | { label: string; run: T; enabled?: boolean; checked?: boolean }
+  | { label: string; run: T; enabled?: boolean; checked?: boolean; keys?: string }
   | { label: string; submenu: MenuEntry<T>[]; enabled?: boolean }
   | { separator: true };
 type Picked<T> = { label: string; run: T };
@@ -25,7 +25,7 @@ let closeOpenMenu: (() => void) | undefined;
  * It behaves like a macOS menu: one highlighted item, which the pointer and the arrow keys
  * both move; submenus open beside their item, on hover or →.
  */
-export function popupMenu<T>(items: MenuEntry<T>[]): Promise<Picked<T> | undefined> {
+export function popupMenu<T>(items: MenuEntry<T>[], at?: { right: number; top: number }): Promise<Picked<T> | undefined> {
   closeOpenMenu?.();
   return new Promise((resolve) => {
     const layer = document.createElement('div');
@@ -88,6 +88,12 @@ export function popupMenu<T>(items: MenuEntry<T>[]): Promise<Picked<T> | undefin
         }
         const row = Object.assign(document.createElement('button'), { className: 'shell-menu-item', textContent: item.label, tabIndex: -1 });
         row.dataset.key = String(keys++);
+        if ('keys' in item && item.keys) {
+          const label = document.createElement('span');
+          label.textContent = item.label;
+          const shortcut = Object.assign(document.createElement('span'), { className: 'shell-menu-keys', textContent: item.keys });
+          row.replaceChildren(label, shortcut);
+        }
         row.setAttribute('role', 'menuitem');
         menu.append(row);
         if (item.enabled === false) {
@@ -164,8 +170,8 @@ export function popupMenu<T>(items: MenuEntry<T>[]): Promise<Picked<T> | undefin
     document.body.append(layer);
     // Keep the menu on screen.
     const { width, height } = menu.getBoundingClientRect();
-    menu.style.left = `${Math.max(4, Math.min(pointer.x, innerWidth - width - 4))}px`;
-    menu.style.top = `${Math.max(4, Math.min(pointer.y, innerHeight - height - 4))}px`;
+    menu.style.left = `${Math.max(4, Math.min(at ? at.right - width : pointer.x, innerWidth - width - 4))}px`;
+    menu.style.top = `${Math.max(4, Math.min(at?.top ?? pointer.y, innerHeight - height - 4))}px`;
     // Like a native menu, nothing is highlighted until the pointer or a key says so; the
     // layer takes focus so the arrow keys reach it.
     layer.tabIndex = -1;

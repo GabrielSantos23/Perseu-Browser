@@ -60,6 +60,7 @@ function render(s: UiState) {
   $('reload').setAttribute('aria-label', loading ? 'Stop' : 'Reload');
   tip($('reload'), loading ? 'Stop' : 'Reload', loading ? undefined : 'reload');
   tip($('copy'), 'Copy link', 'copyLink');
+  tip($('app-menu'), 'Browser menu');
   tip($('site'), 'Edit the address', 'openLocation');
   tip($('site-controls'), 'Site controls');
   // Only when the page isn't at its normal size; clicking puts it back.
@@ -101,6 +102,11 @@ api.onFlash((message) => {
 document.documentElement.addEventListener('mouseenter', () => state?.addressInSidebar && cmd('setTopBarPeek')(true));
 document.documentElement.addEventListener('mouseleave', () => state?.addressInSidebar && cmd('setTopBarPeek')(false));
 
+$('app-menu').onclick = () => {
+  const box = $('app-menu').getBoundingClientRect();
+  const left = (state?.sidebarMode === 'docked' ? 260 : 8) + box.left;
+  cmd('openAppMenu')(new URLSearchParams(location.search).get('window'), { right: left + box.width, top: 8 + box.bottom + 4 });
+};
 $('back').onclick = () => api.back();
 $('forward').onclick = () => api.forward();
 $('reload').onclick = () => (state?.nav.loading ? api.stop() : api.reload());

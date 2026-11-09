@@ -29,6 +29,7 @@ import { registerNowPlaying } from './nowPlaying';
 import { Favicons } from './favicons';
 import { colorAtTopOfPage } from './lib/pageColor';
 import { followedPreferences, incognito, incognitoState, sessionKey } from './incognito';
+import { displayKeys, keysFor } from './lib/shortcuts';
 
 const STATE_KEY = 'state';
 /** Flecha tab id ↔ Chromium tab id, for the tabs that are open. Kept across background restarts. */
@@ -638,6 +639,47 @@ async function start() {
     ];
   }
 
+  /** The "⋮" beside the window buttons. */
+  function appMenu(): MenuEntry<MenuRun>[] {
+    const shown = (id: ShortcutId) => displayKeys(keysFor(store.state, id));
+    const browser = (name: string): MenuRun => ({ browser: name });
+    const run = (id: ShortcutId) => ({ run: does('run', id), keys: shown(id) });
+    return [
+      { label: 'New Tab', ...run('newTab') },
+      { label: 'New Window', run: browser('newWindow'), keys: 'Ctrl+N' },
+      { label: 'New Incognito Window', ...run('newIncognito') },
+      SEPARATOR,
+      { label: 'Downloads', run: browser('downloads'), keys: 'Ctrl+J' },
+      { label: 'Bookmarks', run: browser('bookmarks') },
+      { label: 'Extensions', run: browser('extensions') },
+      { label: 'Clear Browsing Data…', run: browser('clearData'), keys: 'Ctrl+Shift+Del' },
+      SEPARATOR,
+      {
+        label: 'Zoom',
+        submenu: [
+          { label: 'Zoom In', ...run('zoomIn') },
+          { label: 'Zoom Out', ...run('zoomOut') },
+          { label: 'Actual Size', ...run('actualSize') },
+        ],
+      },
+      SEPARATOR,
+      { label: 'Print…', run: browser('print'), keys: 'Ctrl+P' },
+      { label: 'Find in Page', run: browser('find'), keys: shown('find') },
+      {
+        label: 'More Tools',
+        submenu: [
+          { label: 'Save Page As…', run: browser('savePage'), keys: 'Ctrl+S' },
+          { label: 'Task Manager', run: browser('taskManager'), keys: 'Shift+Esc' },
+          { label: 'Developer Tools', ...run('devTools') },
+          { label: 'View Source', ...run('viewSource') },
+        ],
+      },
+      SEPARATOR,
+      { label: 'About Perseu', run: browser('about') },
+      { label: 'Settings', ...run('settings') },
+    ];
+  }
+
   /** Opens the sidebar's Space editor (name, emoji, colour), in that Space. */
   function editSpace(spaceId: string) {
     if (store.state.activeSpaceId !== spaceId) store.switchSpace(spaceId);
@@ -691,6 +733,8 @@ async function start() {
     newFolder: spacesOnly(() => store.newFolder()),
     tabMenu: (id: string) => tabMenu(String(id)),
     spaceMenu: (id: string) => spaceMenu(String(id)),
+    appMenu,
+    openAppMenu: (window: unknown, at: unknown) => broadcast('app-menu', window, at),
     setOverlay: (name: string, on: boolean) => {
       if (on) frame.overlays.add(String(name));
       else frame.overlays.delete(String(name));
@@ -881,6 +925,7 @@ async function start() {
     find: () => call('find'),
     toggleSidebar: () => call('toggleSidebar'),
     settings: () => showSettings(),
+    newIncognito: () => chrome.flechaPrivate.runBrowserCommand('newIncognitoWindow'),
     newFlechinha: () => call('newFlechinha'),
     closeTab: withTab((tab) => call('close', tab.id)),
     reopenTab: () => {
