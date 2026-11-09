@@ -4,12 +4,11 @@
  */
 import type { Message } from './protocol';
 
-const port = chrome.runtime.connect({ name: 'flecha' });
 const pending = new Map<number, { resolve: (v: unknown) => void; reject: (e: Error) => void }>();
 const listeners = new Map<string, Array<(...args: any[]) => void>>();
 let nextId = 1;
 
-port.onMessage.addListener((message: Message) => {
+function receive(message: Message) {
   if (message.type === 'result') {
     const call = pending.get(message.id);
     pending.delete(message.id);
@@ -18,18 +17,35 @@ port.onMessage.addListener((message: Message) => {
   } else if (message.type === 'event') {
     for (const fn of listeners.get(message.name) ?? []) fn(...message.args);
   }
-});
-setInterval(() => port.postMessage({ type: 'ping' } satisfies Message), 20_000);
+}
+
+/** The background can restart under a page that stays open; the next message connects again. */
+function connect() {
+  const opened = chrome.runtime.connect({ name: 'flecha' });
+  opened.onMessage.addListener(receive);
+  opened.onDisconnect.addListener(() => {
+    port = undefined;
+    for (const call of pending.values()) call.reject(new Error('The background restarted'));
+    pending.clear();
+  });
+  return opened;
+}
+
+let port: chrome.runtime.Port | undefined = connect();
+const send = (message: Message) => (port ??= connect()).postMessage(message);
+setInterval(() => send({ type: 'ping' }), 20_000);
 
 export const cmd =
   (name: string) =>
   (...args: unknown[]) =>
-    port.postMessage({ type: 'cmd', name, args } satisfies Message);
+    send({ type: 'cmd', name, args });
 
 export function invoke<T = unknown>(name: string, ...args: unknown[]): Promise<T> {
   const id = nextId++;
-  port.postMessage({ type: 'invoke', id, name, args } satisfies Message);
-  return new Promise((resolve, reject) => pending.set(id, { resolve: resolve as (v: unknown) => void, reject }));
+  return new Promise((resolve, reject) => {
+    pending.set(id, { resolve: resolve as (v: unknown) => void, reject });
+    send({ type: 'invoke', id, name, args });
+  });
 }
 
 export function on(name: string, fn: (...args: any[]) => void) {

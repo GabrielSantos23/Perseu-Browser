@@ -90,6 +90,7 @@ const api: FlechaApi = {
   onFlash: (cb) => on('flash', cb),
   ready: cmd('ready'),
   searchHistory: (query) => invoke('searchHistory', query),
+  searchSuggestions: (query) => invoke('searchSuggestions', query),
   topSites: () => invoke('topSites'),
   // Extensions can't read other apps' icons; the onboarding falls back to the name.
   appIcon: async () => undefined,
@@ -119,7 +120,7 @@ const api: FlechaApi = {
   // Electron asks first, in a message box; the page asks in its own dialog.
   deleteSpace: (id) => void confirmDeleteSpace(id),
   // Electron pops native menus; the page draws them, from items the background builds.
-  tabMenu: (id) => void showMenu('tabMenu', id),
+  tabMenu: (id) => showMenu('tabMenu', id),
   spaceMenu: (id) => void showMenu('spaceMenu', id),
   toggleFolder: cmd('toggleFolder'),
   renameFolder: cmd('renameFolder'),
@@ -168,6 +169,7 @@ const api: FlechaApi = {
   editBoost: cmd('editBoost'),
   openBoostsFolder: cmd('openBoostsFolder'),
   splitWith: cmd('splitWith'),
+  goHome: cmd('goHome'),
   setTabDragging: cmd('setTabDragging'),
   dropToSplit: cmd('dropToSplit'),
   splitNew: cmd('splitNew'),

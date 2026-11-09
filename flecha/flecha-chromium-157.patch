@@ -3068,7 +3068,7 @@ index 0000000000000000000000000000000000000000..1ac65e45e00ddeb309f4fcac76fdf8c0
 +}
 diff --git a/chrome/browser/flecha/flecha_frame_host.h b/chrome/browser/flecha/flecha_frame_host.h
 new file mode 100644
-index 0000000000000000000000000000000000000000..59588afd0f2399db185e56599f817dbc7250faf5
+index 0000000000000000000000000000000000000000..97083f4ec69d99fb1f1f5114bff7bde646d5666a
 --- /dev/null
 +++ b/chrome/browser/flecha/flecha_frame_host.h
 @@ -0,0 +1,296 @@
@@ -3133,14 +3133,14 @@ index 0000000000000000000000000000000000000000..59588afd0f2399db185e56599f817dbc
 +inline constexpr float kFlechaPageCornerRadius =
 +    kFlechaWindowCornerRadius - kFlechaGap;
 +
-+// Peek's card in the page area (the spike's peekBounds()): inset 8% of the
-+// page area's width on each side, 48 from its top (room for the frame page's
-+// Peek toolbar) and 24 from its bottom.
++// Peek's card in the page area: inset 8% of the page area's width on the left,
++// 64 on the right (room for the frame page's column of buttons) and 12 from
++// its top and bottom.
 +inline gfx::Rect FlechaPeekBounds(const gfx::Rect& page) {
 +  const int margin = static_cast<int>(page.width() * 0.08 + 0.5);
-+  return gfx::Rect(page.x() + margin, page.y() + 48,
-+                   std::max(0, page.width() - margin * 2),
-+                   std::max(0, page.height() - 72));
++  return gfx::Rect(page.x() + margin, page.y() + 12,
++                   std::max(0, page.width() - margin - 64),
++                   std::max(0, page.height() - 24));
 +}
 +
 +// Flechinha (src/main/flechinha.ts): the frame page is a toolbar this tall
@@ -4631,10 +4631,10 @@ index 928a723e2e2275985432ffdf32c8e2063d9477d4..a434ae7bdb68451a5ef5a220580dc91e
        std::move(layout_views)));
 diff --git a/chrome/browser/ui/views/frame/flecha_frame_view.cc b/chrome/browser/ui/views/frame/flecha_frame_view.cc
 new file mode 100644
-index 0000000000000000000000000000000000000000..da9b27bca847b1191eacc0c32e055a20d0120aeb
+index 0000000000000000000000000000000000000000..e5167e02e8a8347238e566a3262cfc40895efa9c
 --- /dev/null
 +++ b/chrome/browser/ui/views/frame/flecha_frame_view.cc
-@@ -0,0 +1,864 @@
+@@ -0,0 +1,889 @@
 +// Copyright 2026 The Flecha Authors
 +// Use of this source code is governed by a BSD-style license that can be
 +// found in the LICENSE file.
@@ -4691,6 +4691,9 @@ index 0000000000000000000000000000000000000000..da9b27bca847b1191eacc0c32e055a20
 +#include "ui/gfx/draggable_region.h"
 +#include "ui/views/background.h"
 +#include "ui/views/border.h"
++#include "ui/gfx/image/image_skia.h"
++#include "third_party/skia/include/core/SkBitmap.h"
++#include "base/no_destructor.h"
 +#include "ui/views/controls/webview/web_contents_set_background_color.h"
 +#include "ui/views/focus/focus_manager.h"
 +#include "ui/views/widget/widget.h"
@@ -4699,6 +4702,27 @@ index 0000000000000000000000000000000000000000..da9b27bca847b1191eacc0c32e055a20
 +namespace {
 +
 +// The window background behind the page area; the frame page draws over it.
++// The sidebar's grain (styles.css) for the frame's gaps around the page: a fine
++// grey speckle, the same every time.
++const gfx::ImageSkia& FrameGrain() {
++  static const base::NoDestructor<gfx::ImageSkia> grain([] {
++    constexpr int kSize = 128;
++    SkBitmap bitmap;
++    bitmap.allocN32Pixels(kSize, kSize);
++    uint32_t seed = 0x5eed1234;
++    for (int y = 0; y < kSize; ++y) {
++      for (int x = 0; x < kSize; ++x) {
++        seed = seed * 1664525u + 1013904223u;
++        // Measured from the CSS grain on black: mean 8.3, spread 1.9.
++        const U8CPU alpha = 7 + (seed >> 24) * 9 / 256;
++        *bitmap.getAddr32(x, y) = SkPreMultiplyARGB(alpha, 188, 188, 188);
++      }
++    }
++    return gfx::ImageSkia::CreateFrom1xBitmap(bitmap);
++  }());
++  return *grain;
++}
++
 +class FlechaFrameBackgroundView : public views::View {
 +  METADATA_HEADER(FlechaFrameBackgroundView, views::View)
 +
@@ -4723,6 +4747,7 @@ index 0000000000000000000000000000000000000000..da9b27bca847b1191eacc0c32e055a20
 +
 +  void Paint(gfx::Canvas* canvas, views::View* view) const override {
 +    canvas->DrawColor(state_.background);
++    canvas->TileImageInt(FrameGrain(), 0, 0, view->width(), view->height());
 +    gfx::Rect page = view->GetLocalBounds();
 +    page.Inset(view->GetInsets());
 +    // A page area that fills the window (fullscreen, sidebar hidden) has no

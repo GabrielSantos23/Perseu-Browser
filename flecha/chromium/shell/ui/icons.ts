@@ -30,6 +30,7 @@ export const ICONS = {
   clock: 'M8 14A6 6 0 1 0 8 2a6 6 0 0 0 0 12zM8 4.5V8l2.5 1.5',
   sidebar: 'M2.5 3.5h11v9h-11zM6 3.5v9',
   arrowLeft: 'M9.5 3.5 5 8l4.5 4.5',
+  undo: 'M6 3 3 6l3 3M3.5 6H9a3.5 3.5 0 0 1 0 7H7',
   arrowUp: 'M8 13V3.5M4 7.5l4-4 4 4',
   mic: 'M8 2.5a2 2 0 0 1 2 2V8a2 2 0 0 1-4 0V4.5a2 2 0 0 1 2-2zM4.5 7.5a3.5 3.5 0 0 0 7 0M8 11v2.5',
   arrowRight: 'M6.5 3.5 11 8l-4.5 4.5',

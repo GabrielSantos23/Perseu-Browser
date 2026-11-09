@@ -31,12 +31,12 @@
       <div class="sidebar-main">
 
       <div id="urlbar-wrap" class="address-only">
-        <button id="btn-copy-link" class="url-action" aria-label="Copy link" data-tip="Copy link" data-shortcut="copyLink"><i data-icon="link"></i></button>
         <button id="urlbar" data-tip="Open location" data-shortcut="openLocation">
           <span id="urlbar-icon"></span>
           <span id="urlbar-env"></span>
           <span id="urlbar-text"></span>
         </button>
+        <button id="btn-copy-link" class="url-action" aria-label="Copy link" data-tip="Copy link" data-shortcut="copyLink"><i data-icon="link"></i></button>
         <button id="btn-site" class="url-action" data-opens="site-panel" aria-label="Site controls" aria-haspopup="dialog" aria-expanded="false" data-tip="Site controls"><i data-icon="sliders"></i></button>
       </div>
 
@@ -143,6 +143,16 @@
       </div>
       </div>
 
+      <div id="fav-card" role="group" aria-label="Favorite" hidden>
+        <strong id="fav-card-title"></strong>
+        <span id="fav-card-host"></span>
+        <div class="fav-card-actions">
+          <button id="fav-card-home" class="icon-button" aria-label="Go back to pinned URL" data-tip="Go back to pinned URL"><i data-icon="undo"></i></button>
+          <button id="fav-card-split" class="icon-button" aria-label="Open in split view" data-tip="Open in split view"><i data-icon="columns"></i></button>
+          <button id="fav-card-more" class="icon-button" aria-label="More options" data-tip="More options"><i data-icon="more"></i></button>
+        </div>
+      </div>
+
       <div id="pinned-extensions" class="extension-list" role="group" aria-label="Pinned extensions" hidden></div>
 
       <!-- Downloads, the Spaces, and a new Space, along the bottom. -->
@@ -150,6 +160,7 @@
         <div class="footer-start">
           <button id="btn-downloads" class="icon-button" data-tip="Downloads" aria-label="Downloads">
             <i data-icon="download"></i>
+            <svg id="downloads-ring" viewBox="0 0 28 28" aria-hidden="true"><circle class="track" cx="14" cy="14" r="12.5" /><circle class="fill" cx="14" cy="14" r="12.5" pathLength="100" /></svg>
             <span id="downloads-badge" hidden></span>
           </button>
           <button id="btn-archive" class="icon-button" data-tip="Archived tabs" aria-label="Archived tabs"><i data-icon="archive"></i></button>
@@ -162,6 +173,7 @@
       </nav>
     </aside>
 
+    <div id="download-fly" aria-hidden="true" hidden><i data-icon="download"></i></div>
     <div id="tooltip" role="tooltip" hidden><span id="tooltip-text"></span><kbd id="tooltip-kbd"></kbd></div>
 
     <!-- The home screen: an empty Space, or a new tab, shows only this. -->
@@ -196,10 +208,10 @@
     </div>
 
     <div id="peek" hidden>
-      <div class="peek-bar">
-        <span class="peek-title"></span>
-        <button id="peek-open" class="pill-button" data-tip="Open as a tab"><i data-icon="external"></i>Open as Tab</button>
-        <button id="peek-close" class="icon-button" data-tip="Close" data-kbd="Esc"><i data-icon="close"></i></button>
+      <div class="peek-rail" role="toolbar" aria-label="Mini window">
+        <button id="peek-open" data-tip="Keep as a page" data-tip-side="left" aria-label="Keep as a page"><i data-icon="external"></i></button>
+        <button id="peek-copy" data-tip="Copy link" data-tip-side="left" aria-label="Copy link"><i data-icon="link"></i></button>
+        <button id="peek-close" data-tip="Close" data-kbd="Esc" data-tip-side="left" aria-label="Close"><i data-icon="close"></i></button>
       </div>
     </div>
 

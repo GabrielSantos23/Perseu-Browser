@@ -186,13 +186,14 @@ function render(s: UiState) {
       .map((tab) => {
         const active = tab.id === space.activeTabId;
         const img = favicon(tab);
-        const el = h('button', { class: `fav${active ? ' active' : ''}`, title: tabTitle(tab), 'aria-label': tabTitle(tab), 'aria-current': active ? 'page' : undefined }, img, audioBadge(tab));
+        const el = h('button', { class: `fav${active ? ' active' : ''}`, 'aria-label': tabTitle(tab), 'aria-current': active ? 'page' : undefined }, img, audioBadge(tab));
         tintFromIcon(el, img);
         wireTab(el, tab, { zone: 'favorites', beforeTabId: tab.id });
         return el;
       }),
   );
 
+  if (!$('fav-card').hidden) showFavCard();
   renderLocalServers(s);
   renderAgent(s);
 
@@ -343,9 +344,9 @@ function renderNode(node: PinnedNode, space: Space, folderId: string | undefined
         void folderMenu(node.id, name, node.name, node.children.length > 0);
       },
     },
-    h('span', { class: 'chevron' }, icon('chevron')),
     emoji ? h('span', { class: 'row-icon folder-emoji' }, emoji.trim()) : h('span', { class: 'row-icon folder-icon' }, icon(node.open ? 'folderOpen' : 'folder')),
     name,
+    h('span', { class: 'chevron' }, icon('chevron')),
     !node.open && count ? h('span', { class: 'folder-count' }, `(${count} ${count === 1 ? 'page' : 'pages'})`) : null,
   );
   header.setAttribute('aria-expanded', String(node.open));
@@ -1082,7 +1083,7 @@ function closePalette() {
   api.closePalette();
 }
 
-type PaletteGroup = '' | 'Developer' | 'Actions' | 'Tabs' | 'History' | 'Archive';
+type PaletteGroup = '' | 'Developer' | 'Actions' | 'Suggestions' | 'Tabs' | 'History' | 'Archive';
 
 /** Commands the bar can run, found by typing any word of their label or keywords. */
 const ACTIONS: Array<{ label: string; keywords: string; icon: IconName; shortcut?: string; run: () => void }> = [
@@ -1178,6 +1179,9 @@ function updatePalette() {
     // A matching shortcut or action is what was meant (`gh 12`, `settings`); otherwise searching is.
     if (items.length && !isUrl) items.push(searchItem);
     else items.unshift(searchItem);
+    if (!isUrl && suggestionsFor && lower.startsWith(suggestionsFor.toLowerCase())) {
+      for (const text of paletteSuggestions.filter((s) => s.toLowerCase() !== lower)) items.push({ group: 'Suggestions', icon: 'search', label: text, sub: '', run: () => open(text) });
+    }
   }
 
   // Only this Space's tabs: picking one from another Space would switch Space.
@@ -1285,12 +1289,27 @@ function runItem(i: number) {
 }
 
 // History lives in the main process; results arrive asynchronously and are dropped if stale.
+// A background that was restarting drops the request; asking again wakes it.
+const suggestionsOf = (q: string) => api.searchSuggestions(q).catch(() => api.searchSuggestions(q)).catch(() => [] as string[]);
 let historyResults: HistoryEntry[] = [];
+let paletteSuggestions: string[] = [];
+let suggestionsFor = '';
+let paletteSuggestTimer: number | undefined;
 function refreshHistory() {
   const q = paletteInput.value.trim();
+  clearTimeout(paletteSuggestTimer);
   if (!q) {
     historyResults = [];
     return;
+  }
+  if (!q.startsWith('!') && !looksLikeUrl(q)) {
+    paletteSuggestTimer = window.setTimeout(async () => {
+      const results = await suggestionsOf(q);
+      if (paletteInput.value.trim() !== q || palette.hidden) return;
+      paletteSuggestions = results;
+      suggestionsFor = q;
+      updatePalette();
+    }, 120);
   }
   api.searchHistory(q).then((results) => {
     if (paletteInput.value.trim() !== q || palette.hidden) return;
@@ -1331,24 +1350,22 @@ paletteInput.addEventListener('blur', () => setTimeout(() => document.activeElem
 // ---- peek -------------------------------------------------------------------------
 
 const peek = $('peek');
-const peekBar = peek.querySelector<HTMLElement>('.peek-bar')!;
+const peekRail = peek.querySelector<HTMLElement>('.peek-rail')!;
+let peekUrl = '';
 
 function renderPeek(p: PeekState | null) {
   peek.hidden = !p;
   if (!p) return;
-  const barHeight = 36;
-  Object.assign(peekBar.style, {
-    left: `${p.bounds.x}px`,
-    top: `${p.bounds.y - barHeight - 6}px`,
-    width: `${p.bounds.width}px`,
-  });
-  peekBar.querySelector('.peek-title')!.textContent = p.title || host(p.url);
+  peekUrl = p.url;
+  peekRail.style.left = `${p.bounds.x + p.bounds.width + 12}px`;
+  peekRail.style.top = `${p.bounds.y + 8}px`;
 }
 
 peek.addEventListener('mousedown', (e) => {
   if (e.target === peek) api.closePeek();
 });
 $('peek-open').onclick = () => api.promotePeek();
+$('peek-copy').onclick = () => api.copyText(peekUrl, 'Link copied');
 $('peek-close').onclick = () => api.closePeek();
 
 // ---- downloads --------------------------------------------------------------------
@@ -1403,12 +1420,54 @@ function downloadStatus(d: DownloadInfo) {
   return d.total ? `${formatBytes(d.received)} of ${formatBytes(d.total)}` : formatBytes(d.received);
 }
 
+/** Brings the hidden sidebar out, sends a file to the downloads button, and lets the sidebar go again. */
+async function announceDownload() {
+  const button = $('btn-downloads');
+  const fly = $('download-fly');
+  if (surface === 'newtab') return;
+  const wasHidden = document.body.dataset.sidebar !== 'docked';
+  if (wasHidden) {
+    keepPeek();
+    api.setSidebarPeek(true);
+    for (let i = 0; i < 20 && document.body.dataset.sidebar !== 'floating'; i++) await new Promise((r) => setTimeout(r, 25));
+    await new Promise((r) => setTimeout(r, 220));
+  }
+  const side = $('sidebar').getBoundingClientRect();
+  const to = button.getBoundingClientRect();
+  const end = { x: to.left + to.width / 2 - 18, y: to.top + to.height / 2 - 18 };
+  const start = { x: side.right - 56, y: side.top + side.height * 0.35 };
+  const at = (x: number, y: number, scale: number) => `translate(${x}px, ${y}px) scale(${scale})`;
+  fly.hidden = false;
+  if (!matchMedia('(prefers-reduced-motion: reduce)').matches) {
+    await fly.animate(
+      [
+        { transform: at(start.x, start.y, 0.7), opacity: 0 },
+        { transform: at(start.x, start.y - 12, 1), opacity: 1, offset: 0.18 },
+        { transform: at((start.x + end.x) / 2, start.y + (end.y - start.y) * 0.45, 0.95), opacity: 1, offset: 0.55 },
+        { transform: at(end.x, end.y, 0.4), opacity: 0.2 },
+      ],
+      { duration: 760, easing: 'cubic-bezier(0.4, 0, 0.3, 1)' },
+    ).finished;
+  }
+  fly.hidden = true;
+  button.animate([{ transform: 'scale(1)' }, { transform: 'scale(1.18)' }, { transform: 'scale(1)' }], { duration: 240, easing: 'ease-out' });
+  if (wasHidden) window.setTimeout(() => leavePeek(), 1200);
+}
+
 function renderDownloads(items: DownloadInfo[], started?: DownloadInfo) {
-  const active = items.filter((d) => d.state === 'progressing').length;
+  const running = items.filter((d) => d.state === 'progressing');
+  const active = running.length;
   const badge = $('downloads-badge');
-  badge.hidden = !active;
+  // One download is the ring; the number only says when there's more than one.
+  badge.hidden = active < 2;
   badge.textContent = String(active);
-  if (started) downloadsPanel.hidden = false;
+  const button = $('btn-downloads');
+  const sized = running.filter((d) => d.total > 0);
+  button.classList.toggle('downloading', active > 0);
+  button.classList.toggle('indeterminate', active > 0 && sized.length < active);
+  const progress = sized.length ? (sized.reduce((n, d) => n + d.received, 0) / sized.reduce((n, d) => n + d.total, 0)) * 100 : 0;
+  button.style.setProperty('--progress', progress.toFixed(1));
+  if (started) void announceDownload();
 
   $('downloads-list').replaceChildren(
     ...items.map((d) => {
@@ -1429,7 +1488,7 @@ function renderDownloads(items: DownloadInfo[], started?: DownloadInfo) {
           'button',
           {
             class: 'icon-button',
-            title: d.state === 'progressing' ? 'Cancel' : 'Show in Finder',
+            title: d.state === 'progressing' ? 'Cancel' : 'Show in folder',
             onclick: (e: Event) => {
               e.stopPropagation();
               if (d.state === 'progressing') api.cancelDownload(d.id);
@@ -1515,8 +1574,8 @@ function keepPeek() {
   clearTimeout(peekCloseTimer);
   peekSidebar.classList.remove('peek-leaving');
 }
-function leavePeek(e: MouseEvent) {
-  if (document.body.dataset.sidebar !== 'floating' || inPeek(e.relatedTarget)) return;
+function leavePeek(e?: MouseEvent) {
+  if (document.body.dataset.sidebar !== 'floating' || inPeek(e?.relatedTarget ?? null)) return;
   clearTimeout(peekCloseTimer);
   const leaveWhenIdle = () => {
     // Stay open while something inside it is being used (a menu counts: Edit Space is in one).
@@ -1558,6 +1617,11 @@ function showTip(target: HTMLElement) {
   tooltip.hidden = false;
   const r = target.getBoundingClientRect();
   const t = tooltip.getBoundingClientRect();
+  if (target.dataset.tipSide === 'left') {
+    tooltip.style.left = `${r.left - t.width - 6}px`;
+    tooltip.style.top = `${r.top + r.height / 2 - t.height / 2}px`;
+    return;
+  }
   if (target.dataset.tipSide === 'right') {
     tooltip.style.left = `${r.right + 6}px`;
     tooltip.style.top = `${r.top + r.height / 2 - t.height / 2}px`;
@@ -1591,6 +1655,105 @@ document.addEventListener('pointerdown', hideTip, true);
 document.addEventListener('scroll', hideTip, true);
 window.addEventListener('blur', hideTip);
 
+// ---- favorite card ----------------------------------------------------------------
+
+const favCard = $('fav-card');
+const favorites = $('favorites');
+let favCardTab: string | undefined;
+let favCardShow: number | undefined;
+let favCardLeave: number | undefined;
+let favCardHiddenAt = 0;
+// A pressed tile redraws under the pointer; its card must not come back until the pointer moves on.
+let favCardPressed: string | undefined;
+// Its own "More options" menu is open: the pointer leaving for the menu doesn't close the card.
+let favCardHeld = false;
+
+function showFavCard() {
+  const tab = favCardTab ? state?.tabs[favCardTab] : undefined;
+  const tile = favCardTab ? favorites.querySelector(`[data-tab-id="${CSS.escape(favCardTab)}"]`) : null;
+  const space = state?.spaces.find((s) => s.id === state!.activeSpaceId);
+  if (!tab || !tile || !space) return hideFavCard();
+  $('fav-card-title').textContent = tabTitle(tab);
+  $('fav-card-host').textContent = host(tab.url);
+  $<HTMLButtonElement>('fav-card-home').disabled = !tab.homeUrl || tab.homeUrl === tab.url;
+  $<HTMLButtonElement>('fav-card-split').disabled = !space.activeTabId || space.activeTabId === tab.id;
+  favCard.hidden = false;
+  const side = $('sidebar').getBoundingClientRect();
+  const r = tile.getBoundingClientRect();
+  const height = favCard.offsetHeight;
+  favCard.style.left = `${Math.max(8, Math.min(r.left - side.left, side.width - favCard.offsetWidth - 8))}px`;
+  favCard.style.top = `${r.bottom + 4 + height < side.bottom - 8 ? r.bottom - side.top + 4 : r.top - side.top - height - 4}px`;
+}
+
+function hideFavCard() {
+  if (favCardHeld) return;
+  clearTimeout(favCardShow);
+  clearTimeout(favCardLeave);
+  favCardTab = undefined;
+  if (!favCard.hidden) favCardHiddenAt = Date.now();
+  favCard.hidden = true;
+}
+
+function leaveFavCard() {
+  clearTimeout(favCardLeave);
+  favCardLeave = window.setTimeout(hideFavCard, 160);
+}
+
+function openFavCard(id: string, delay: number) {
+  clearTimeout(favCardLeave);
+  if (id === favCardTab) return;
+  clearTimeout(favCardShow);
+  favCardTab = id;
+  favCardShow = window.setTimeout(showFavCard, !favCard.hidden || Date.now() - favCardHiddenAt < 400 ? 0 : delay);
+}
+
+favorites.addEventListener('pointerover', (e) => {
+  const id = (e.target as Element).closest<HTMLElement>('.fav')?.dataset.tabId;
+  if (!id) return void clearTimeout(favCardLeave);
+  if (id === favCardPressed) return;
+  favCardPressed = undefined;
+  openFavCard(id, 550);
+});
+favorites.addEventListener('pointerout', (e) => {
+  const to = e.relatedTarget as Node | null;
+  if (to && (favorites.contains(to) || favCard.contains(to))) return;
+  favCardPressed = undefined;
+  leaveFavCard();
+});
+favorites.addEventListener('pointerdown', (e) => {
+  favCardPressed = (e.target as Element).closest<HTMLElement>('.fav')?.dataset.tabId;
+  hideFavCard();
+});
+favorites.addEventListener('focusin', (e) => {
+  const tile = (e.target as Element).closest<HTMLElement>('.fav');
+  if (tile?.matches(':focus-visible')) openFavCard(tile.dataset.tabId!, 0);
+});
+favorites.addEventListener('focusout', leaveFavCard);
+favCard.addEventListener('pointerenter', () => clearTimeout(favCardLeave));
+favCard.addEventListener('pointerleave', leaveFavCard);
+window.addEventListener('blur', hideFavCard);
+document.addEventListener('keydown', (e) => e.key === 'Escape' && hideFavCard());
+
+const favCardAction = (id: string, run: (tabId: string) => void) => {
+  $(id).onclick = () => {
+    const tabId = favCardTab;
+    hideFavCard();
+    if (tabId) run(tabId);
+  };
+};
+favCardAction('fav-card-home', (id) => api.goHome(id));
+favCardAction('fav-card-split', (id) => api.splitWith(id));
+$('fav-card-more').onclick = async () => {
+  if (!favCardTab) return;
+  favCardHeld = true;
+  try {
+    await api.tabMenu(favCardTab);
+  } finally {
+    favCardHeld = false;
+    leaveFavCard();
+  }
+};
+
 // ---- wiring ---------------------------------------------------------------------
 
 $('btn-sidebar').onclick = () => api.toggleSidebar();
@@ -1606,7 +1769,8 @@ $('btn-newspace').onclick = () => api.newSpace();
 const homeInput = $<HTMLInputElement>('home-input');
 const homeList = $('home-suggestions');
 let homeBang: { tag: string; name: string } | undefined;
-let homeHits: HistoryEntry[] = [];
+let homeHits: Array<{ url: string; title: string; search?: boolean }> = [];
+let homeSuggestTimer: number | undefined;
 let homeSelected = -1;
 
 function renderHome() {
@@ -1621,7 +1785,7 @@ function renderHome() {
   homeList.replaceChildren(
     ...(bang
       ? [row(false, acceptHomeBang, itemIcon('search'), h('span', { class: 'name' }, homeInput.value), h('span', { class: 'host' }, 'DuckDuckGo search'), h('span', { class: 'palette-chip' }, icon('search'), bang.name))]
-      : homeHits.map((hit, i) => row(i === homeSelected, () => openFromHome(hit.url), itemIcon(hit.url), h('span', { class: 'name' }, hit.title || hit.url), h('span', { class: 'host' }, host(hit.url))))),
+      : homeHits.map((hit, i) => row(i === homeSelected, () => openFromHome(hit.url), itemIcon(hit.search ? 'search' : hit.url), h('span', { class: 'name' }, hit.title || hit.url), hit.search ? null : h('span', { class: 'host' }, host(hit.url))))),
   );
   homeList.hidden = !homeList.children.length;
 }
@@ -1636,15 +1800,20 @@ function setHomeBang(bang: typeof homeBang, text: string) {
 function homeChanged() {
   const q = homeInput.value.trim();
   if (q.startsWith('!')) loadBangs();
-  homeHits = [];
+  // The last list stays up while the next one is on its way.
+  if (!q || q.startsWith('!') || homeBang) homeHits = [];
   homeSelected = -1;
   renderHome();
+  clearTimeout(homeSuggestTimer);
   if (!q || q.startsWith('!') || homeBang) return;
-  void api.searchHistory(q).then((results) => {
+  homeSuggestTimer = window.setTimeout(async () => {
+    // One source failing leaves the other's results.
+    const [history, suggestions] = await Promise.all([api.searchHistory(q).catch(() => []), looksLikeUrl(q) ? [] : suggestionsOf(q)]);
     if (homeInput.value.trim() !== q || homeBang) return;
-    homeHits = results.sort((a, b) => b.visits - a.visits).slice(0, 6);
+    const visited = history.sort((a, b) => b.visits - a.visits).slice(0, 3);
+    homeHits = [...visited, ...suggestions.map((text) => ({ url: text, title: text, search: true }))];
     renderHome();
-  });
+  }, 120);
 }
 
 function openFromHome(text: string) {

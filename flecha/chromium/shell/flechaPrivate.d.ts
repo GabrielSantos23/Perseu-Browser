@@ -180,8 +180,8 @@ declare namespace chrome.flechaPrivate {
 
   /**
    * Peek (patch 0026), like the spike's openPeek(): a page in a floating card over the page
-   * area, at peekBounds() = page area inset round(8% of its width) on each side, 48 from its
-   * top (room for the frame page's Peek toolbar) and 24 from its bottom; 12px corners.
+   * area, at peekBounds() = page area inset round(8% of its width) on the left, 64 on the
+   * right (room for the frame page's buttons) and 12 from its top and bottom; 12px corners.
    * While a Peek is open the frame view covers the whole window (as with overlay: true), so
    * the frame page draws the dimmed backdrop and the toolbar from onPeekChanged's bounds; the
    * page area doesn't move. Escape in the Peek closes it; its links to new tabs open as tabs

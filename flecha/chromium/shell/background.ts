@@ -533,7 +533,6 @@ async function start() {
     if (info.audible !== undefined) patch.audible = info.audible;
     if (info.mutedInfo) patch.muted = info.mutedInfo.muted;
     store.updateTab(id, patch);
-    if (info.url) siteColors.delete(chromeId);
     if (info.status === 'complete') refreshSiteColor(chromeId);
     if ((info.status || info.url) && tab.active) void refreshNav().then(sendState);
     if (info.splitViewId !== undefined) void splitChanged(chromeId, info.splitViewId);
@@ -595,7 +594,7 @@ async function start() {
       { label: 'Rename…', run: { rename: tabId } },
       { label: 'Duplicate', run: does('newTab', tab.url) },
       // A Flechinha window of its own; the window code lives in another shell module.
-      { label: 'Open in Mini Window', run: does('openFlechinha', tab.url, tabId) },
+      { label: 'Open in Mini Window', run: does('openPeek', tab.url) },
       SEPARATOR,
       // An incognito window has just its tabs: nothing to pin, no other Space.
       ...(incognito
@@ -840,6 +839,27 @@ async function start() {
       if (prefs?.theme === 'system' || prefs?.theme === 'light' || prefs?.theme === 'dark') store.setPreferences({ theme: prefs.theme });
       if (prefs?.searchEngine) store.setSearchEngine(prefs.searchEngine as SearchEngineId);
       if (typeof prefs?.adBlock === 'boolean') store.setAdBlock(prefs.adBlock);
+    },
+    // Google's public autocomplete; the next service is asked only when one fails, not when it
+    // has nothing to suggest. What's typed in an incognito window stays out of it.
+    searchSuggestions: async (query: string): Promise<string[]> => {
+      if (incognito) return [];
+      const q = encodeURIComponent(query);
+      const services = [
+        `https://suggestqueries.google.com/complete/search?client=firefox&ie=utf-8&oe=utf-8&hl=${encodeURIComponent(navigator.language)}&q=${q}`,
+        `https://duckduckgo.com/ac/?type=list&q=${q}`,
+        `https://www.bing.com/osjson.aspx?query=${q}`,
+      ];
+      for (const url of services) {
+        try {
+          const response = await fetch(url, { credentials: 'omit', signal: AbortSignal.timeout(1200) });
+          const data = response.ok ? await response.json() : undefined;
+          if (Array.isArray(data?.[1])) return data[1].filter((s: unknown): s is string => typeof s === 'string').slice(0, 5);
+        } catch {
+          // Unreachable, slow or not JSON: the next one.
+        }
+      }
+      return [];
     },
     searchHistory: async (query: string) =>
       (await chrome.history.search({ text: String(query), maxResults: 50, startTime: 0 })).filter((h) => isWebPage(h.url)).map((h) => ({

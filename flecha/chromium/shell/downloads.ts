@@ -26,7 +26,7 @@ const since: Promise<string> = (async () => {
   return now;
 })();
 
-const basename = (file: string) => file.split('/').pop() ?? file;
+const basename = (file: string) => file.split(/[\\/]/).pop() ?? file;
 
 function toInfo(item: chrome.downloads.DownloadItem): DownloadInfo {
   const name = basename(item.filename) || basename(new URL(item.finalUrl || item.url).pathname) || 'download';

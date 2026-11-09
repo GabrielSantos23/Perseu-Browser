@@ -21,9 +21,10 @@ body {
   border-radius: var(--page-radius) var(--page-radius) 0 0;
   background: var(--site-bg, #fff);
   color: var(--site-fg, #1d1d1f);
+  /* A colour change, not movement: it fades whatever the system's reduced-motion setting. */
   transition:
-    background var(--medium) var(--ease),
-    color var(--medium) var(--ease);
+    background 360ms ease,
+    color 360ms ease;
   -webkit-app-region: drag;
 }
 

@@ -455,6 +455,7 @@ export interface FlechaApi {
   onDownloads(cb: (items: DownloadInfo[], started?: DownloadInfo) => void): void;
   ready(): void;
   searchHistory(query: string): Promise<HistoryEntry[]>;
+  searchSuggestions(query: string): Promise<string[]>;
   /** Most visited sites, one per host. */
   topSites(): Promise<HistoryEntry[]>;
   /** An installed app's icon as a data URL, by its name in /Applications. */
@@ -484,7 +485,7 @@ export interface FlechaApi {
   onOpenSitePanel?(cb: (rect: { left: number; top: number; width: number; height: number }) => void): void;
   setSpaceIsolated(spaceId: string, isolated: boolean): void;
   deleteSpace(spaceId: string): void;
-  tabMenu(tabId: string): void;
+  tabMenu(tabId: string): Promise<void>;
   spaceMenu(spaceId: string): void;
   toggleFolder(folderId: string): void;
   renameFolder(folderId: string, name: string): void;
@@ -525,6 +526,7 @@ export interface FlechaApi {
   editBoost(kind: 'script' | 'styles'): void;
   openBoostsFolder(): void;
   splitWith(tabId: string): void;
+  goHome(tabId: string): void;
   /** While a tab is dragged, the sidebar UI covers the page so it can be dropped there. */
   setTabDragging(dragging: boolean): void;
   dropToSplit(tabId: string, side: 'left' | 'right'): void;

@@ -31,7 +31,7 @@ body {
   padding: 10px 8px 8px;
   /* Painted opaque on purpose: Chromium does not clear stale frames under transparent
      pixels of an overlaid view, which made old rows ghost behind new ones. */
-  background: var(--space-color, #cdd9f7);
+  background: var(--space-color, #cdd9f7) url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='180' height='180'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='.85' numOctaves='2' stitchTiles='stitch'/%3E%3CfeColorMatrix values='0 0 0 0 .5 0 0 0 0 .5 0 0 0 0 .5 0 0 0 .55 0'/%3E%3C/filter%3E%3Crect width='180' height='180' filter='url(%23n)' opacity='.16'/%3E%3C/svg%3E");
 }
 
 .toolbar {
@@ -78,6 +78,10 @@ body[data-address='top'] .address-only {
   --text-3: rgba(22, 36, 58, 0.42);
   --fill-hover: rgba(255, 255, 255, 0.42);
   --fill-active: rgba(255, 255, 255, 0.92);
+  --fill-subtle: rgba(255, 255, 255, 0.3);
+  --tile-hover: rgba(255, 255, 255, 0.66);
+  --tile-active: rgba(255, 255, 255, 0.92);
+  --tile-line: rgba(11, 37, 69, 0.09);
   --line: rgba(11, 37, 69, 0.1);
   --shadow-row: 0 1px 2px rgba(11, 37, 69, 0.08), 0 0 0 0.5px rgba(11, 37, 69, 0.06);
 }
@@ -86,6 +90,9 @@ body[data-address='top'] .address-only {
 #sidebar[data-ink='dark'][data-bright] {
   --fill-hover: rgba(0, 0, 0, 0.05);
   --fill-active: rgba(0, 0, 0, 0.08);
+  --fill-subtle: rgba(0, 0, 0, 0.03);
+  --tile-hover: rgba(0, 0, 0, 0.07);
+  --tile-active: rgba(0, 0, 0, 0.1);
   --shadow-row: none;
 }
 
@@ -95,6 +102,10 @@ body[data-address='top'] .address-only {
   --text-3: rgba(230, 236, 243, 0.4);
   --fill-hover: rgba(255, 255, 255, 0.06);
   --fill-active: rgba(255, 255, 255, 0.13);
+  --fill-subtle: rgba(255, 255, 255, 0.07);
+  --tile-hover: rgba(255, 255, 255, 0.15);
+  --tile-active: rgba(255, 255, 255, 0.24);
+  --tile-line: rgba(255, 255, 255, 0.1);
   --line: rgba(230, 236, 243, 0.1);
   --shadow-row: 0 0 0 0.5px rgba(255, 255, 255, 0.08);
 }
@@ -193,12 +204,15 @@ body[data-address='top'] .address-only {
   padding-right: 4px;
   border-radius: var(--radius-lg);
   background: var(--fill-subtle);
-  box-shadow: inset 0 0 0 0.5px var(--line);
+  box-shadow: inset 0 0 0 1px var(--tile-line);
+  color: var(--text);
   transition: background var(--fast) var(--ease);
 }
 
-#urlbar-wrap:hover {
-  background: var(--fill-hover);
+@media (hover: hover) and (pointer: fine) {
+  #urlbar-wrap:hover {
+    background: var(--tile-hover);
+  }
 }
 
 #urlbar {
@@ -208,7 +222,7 @@ body[data-address='top'] .address-only {
   align-items: center;
   gap: var(--space-2);
   height: 100%;
-  padding: 0 4px 0 10px;
+  padding: 0 4px 0 12px;
   text-align: left;
 }
 
@@ -445,7 +459,7 @@ body[data-address='top'] .address-only {
 
 #favorites {
   display: grid;
-  grid-template-columns: repeat(3, 1fr);
+  grid-template-columns: repeat(4, 1fr);
   gap: var(--space-2);
 }
 
@@ -466,12 +480,14 @@ body[data-address='top'] .address-only {
   height: 48px;
   border-radius: var(--radius-lg);
   background: var(--fill-subtle);
-  box-shadow: var(--shadow-row);
-  transition: background var(--fast) var(--ease), transform var(--fast) var(--ease);
+  box-shadow: inset 0 0 0 1px var(--tile-line);
+  transition: background var(--fast) var(--ease), box-shadow var(--fast) var(--ease), transform var(--fast) var(--ease);
 }
 
-.fav:hover {
-  background: var(--fill-hover);
+@media (hover: hover) and (pointer: fine) {
+  .fav:hover {
+    background: var(--tile-hover);
+  }
 }
 
 .fav:active {
@@ -479,8 +495,74 @@ body[data-address='top'] .address-only {
 }
 
 .fav.active {
-  background: color-mix(in srgb, var(--fav-tint, transparent) 22%, var(--fill-active));
-  box-shadow: var(--shadow-row), inset 0 0 0 1.5px color-mix(in srgb, var(--fav-tint, var(--line)) 45%, transparent);
+  background: color-mix(in srgb, var(--fav-tint, transparent) 14%, var(--tile-active));
+  box-shadow: inset 0 0 0 1.5px color-mix(in srgb, var(--fav-tint, var(--tile-line)) 55%, var(--tile-line)), 0 1px 3px rgba(0, 0, 0, 0.18), 0 0 12px color-mix(in srgb, var(--fav-tint, transparent) 32%, transparent);
+}
+
+/* What a favorite is and what it can do; opens under its tile, inside the sidebar. */
+#fav-card {
+  position: absolute;
+  z-index: 6;
+  width: 216px;
+  padding: 12px 8px 6px;
+  border: 1px solid var(--menu-border);
+  border-radius: var(--radius-lg);
+  background: var(--menu-bg);
+  box-shadow: var(--menu-shadow);
+  color: var(--menu-text);
+  font-family: var(--menu-font);
+  animation: fav-card-in var(--medium) var(--ease);
+}
+
+#fav-card[hidden] {
+  display: none;
+}
+
+@keyframes fav-card-in {
+  from {
+    opacity: 0;
+    transform: translateY(-3px);
+  }
+}
+
+#fav-card-title,
+#fav-card-host {
+  display: block;
+  padding: 0 4px;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+#fav-card-title {
+  font-weight: 600;
+}
+
+#fav-card-host {
+  font-size: var(--text-sm);
+  opacity: 0.62;
+}
+
+.fav-card-actions {
+  display: flex;
+  gap: 4px;
+  margin-top: 8px;
+}
+
+#fav-card .icon-button {
+  color: inherit;
+}
+
+#fav-card .icon-button:disabled {
+  color: var(--menu-disabled);
+  opacity: 1;
+}
+
+@media (hover: hover) and (pointer: fine) {
+  #fav-card .icon-button:hover:not(:disabled) {
+    background: var(--menu-hover);
+    color: inherit;
+  }
 }
 
 /* A tab with no page open: only remembered. */
@@ -871,8 +953,12 @@ body[data-address='top'] .address-only {
 /* ---- folders ------------------------------------------------------------ */
 
 .folder > .row {
-  gap: 8px;
-  padding-left: 4px;
+  gap: 10px;
+}
+
+/* The chevron follows the name, a little closer than the icon's gap. */
+.folder > .row .chevron {
+  margin-left: -4px;
 }
 
 .folder > .row .chevron {
@@ -907,6 +993,7 @@ body[data-address='top'] .address-only {
   min-width: 0;
   overflow: hidden;
   white-space: nowrap;
+  text-align: right;
   font-size: var(--text-sm);
   color: var(--text-3);
 }
@@ -920,7 +1007,6 @@ body[data-address='top'] .address-only {
   box-shadow: var(--shadow-row);
 }
 
-/* Icons and titles line up with the folder's own icon and name above them. */
 .folder-children > .row,
 .folder-children > .tab-node > .row {
   gap: 8px;
@@ -1047,6 +1133,74 @@ footer {
 }
 
 #downloads-badge[hidden] {
+  display: none;
+}
+
+/* Fills as the download does; the sidebar can be any colour, so it takes the ink. */
+#downloads-ring {
+  position: absolute;
+  inset: 0;
+  width: 28px;
+  height: 28px;
+  opacity: 0;
+  transform: rotate(-90deg);
+  transition: opacity var(--medium) var(--ease);
+  pointer-events: none;
+}
+
+#btn-downloads.downloading #downloads-ring {
+  opacity: 1;
+}
+
+#downloads-ring circle {
+  fill: none;
+  stroke-width: 2;
+}
+
+#downloads-ring .track {
+  stroke: var(--line);
+}
+
+#downloads-ring .fill {
+  stroke: var(--text);
+  stroke-linecap: round;
+  stroke-dasharray: 100;
+  stroke-dashoffset: calc(100 - var(--progress, 0));
+  transition: stroke-dashoffset 500ms linear;
+}
+
+/* The size isn't known yet: a quarter of the ring goes round. */
+#btn-downloads.indeterminate #downloads-ring .fill {
+  stroke-dasharray: 25 75;
+  stroke-dashoffset: 0;
+  transform-origin: 50% 50%;
+  animation: download-spin 1s linear infinite;
+}
+
+@keyframes download-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+/* The file on its way to the downloads button (app.ts). */
+#download-fly {
+  position: fixed;
+  left: 0;
+  top: 0;
+  z-index: 20;
+  display: grid;
+  place-items: center;
+  width: 36px;
+  height: 36px;
+  border-radius: var(--radius-lg);
+  background: var(--menu-bg);
+  box-shadow: var(--menu-shadow);
+  color: var(--menu-text);
+  pointer-events: none;
+}
+
+#download-fly[hidden] {
   display: none;
 }
 
@@ -1243,26 +1397,53 @@ footer {
   }
 }
 
-.peek-bar {
+/* The mini window's buttons, in a column beside the page. */
+.peek-rail {
+  --peek-tile: #d3eaf7;
+  --peek-tile-hover: #bfe0f3;
+  --peek-icon: #1f6fb5;
   position: absolute;
   display: flex;
-  align-items: center;
-  gap: 6px;
-  height: 36px;
-  padding: 0 4px 0 14px;
-  border-radius: var(--radius-md);
-  background: var(--surface);
-  box-shadow: var(--shadow-pop);
+  flex-direction: column;
+  gap: var(--space-2);
+  animation: peek-rail-in var(--medium) var(--ease);
 }
 
-.peek-title {
-  flex: 1;
-  min-width: 0;
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  color: var(--text-2);
-  font-weight: 500;
+@media (prefers-color-scheme: dark) {
+  .peek-rail {
+    --peek-tile: #17364d;
+    --peek-tile-hover: #1f4765;
+    --peek-icon: #7cc6ec;
+  }
+}
+
+@keyframes peek-rail-in {
+  from {
+    opacity: 0;
+    transform: translateX(-6px);
+  }
+}
+
+.peek-rail button {
+  display: grid;
+  place-items: center;
+  width: 40px;
+  height: 40px;
+  border-radius: var(--radius-lg);
+  background: var(--peek-tile);
+  color: var(--peek-icon);
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.2);
+  transition: background var(--fast) var(--ease), transform var(--fast) var(--ease);
+}
+
+.peek-rail button:active {
+  transform: scale(0.95);
+}
+
+@media (hover: hover) and (pointer: fine) {
+  .peek-rail button:hover {
+    background: var(--peek-tile-hover);
+  }
 }
 
 .pill-button {
@@ -1974,32 +2155,57 @@ footer {
   gap: 8px;
   padding: 12px;
   border-radius: 20px;
-  background: var(--surface);
-  box-shadow: 0 0 0 0.5px var(--line), 0 8px 28px rgba(0, 0, 0, 0.12);
+  --composer-bg: var(--surface);
+  --composer-line: var(--line);
+  background: var(--composer-bg);
+  box-shadow: 0 0 0 1px var(--composer-line), 0 8px 28px rgba(0, 0, 0, 0.12);
 }
 
 /* Dark: on the black page the box is a step lighter, with a hairline, so it reads as a field. */
 @media (prefers-color-scheme: dark) {
   .composer {
-    background: #161616;
-    box-shadow: 0 0 0 0.5px rgba(255, 255, 255, 0.12), 0 8px 28px rgba(0, 0, 0, 0.5);
+    --composer-bg: #161616;
+    --composer-line: rgba(255, 255, 255, 0.12);
+    box-shadow: 0 0 0 1px var(--composer-line), 0 8px 28px rgba(0, 0, 0, 0.5);
   }
 }
 
+/* Hangs off the box's lower edge, narrower than it, the two joined by curves that flare outward. */
 #home-suggestions {
+  --flare: 20px;
   position: absolute;
   z-index: 2;
-  top: calc(100% + 8px);
-  left: 0;
-  right: 0;
+  top: 100%;
+  left: 32px;
+  right: 32px;
   margin: 0;
-  padding: 6px;
+  padding: 8px;
   list-style: none;
-  border: 1px solid var(--menu-border);
-  border-radius: 12px;
-  background: var(--menu-bg);
-  box-shadow: var(--menu-shadow);
-  color: var(--menu-text);
+  border: 1px solid var(--composer-line);
+  border-top: 0;
+  border-radius: 0 0 var(--flare) var(--flare);
+  background: var(--composer-bg);
+  color: var(--text);
+}
+
+#home-suggestions::before,
+#home-suggestions::after {
+  content: '';
+  position: absolute;
+  top: 0;
+  width: var(--flare);
+  height: var(--flare);
+  pointer-events: none;
+}
+
+#home-suggestions::before {
+  left: calc(-1 * var(--flare));
+  background: radial-gradient(circle at 0 100%, transparent calc(var(--flare) - 1px), var(--composer-line) calc(var(--flare) - 1px), var(--composer-line) var(--flare), var(--composer-bg) var(--flare));
+}
+
+#home-suggestions::after {
+  right: calc(-1 * var(--flare));
+  background: radial-gradient(circle at 100% 100%, transparent calc(var(--flare) - 1px), var(--composer-line) calc(var(--flare) - 1px), var(--composer-line) var(--flare), var(--composer-bg) var(--flare));
 }
 
 #home-suggestions[hidden] {
@@ -2017,7 +2223,7 @@ footer {
 
 #home-suggestions li:hover,
 #home-suggestions li.selected {
-  background: var(--menu-hover);
+  background: color-mix(in srgb, var(--text) 8%, transparent);
 }
 
 #home-suggestions .name {
@@ -2041,9 +2247,6 @@ footer {
   color: inherit;
 }
 
-.composer:focus-within {
-  box-shadow: 0 0 0 1px var(--focus), 0 8px 28px rgba(0, 0, 0, 0.14);
-}
 
 .composer-field {
   display: flex;
