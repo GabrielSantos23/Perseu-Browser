@@ -322,6 +322,12 @@ async function start() {
    * window with its last tab, so when none would be left a blank placeholder takes its place
    * (Flecha shows its empty state over it), until a Flecha tab opens again.
    */
+  /** What "Unload Other Tabs" leaves running: that tab and what's on screen. */
+  function unloadKeeps(tabId: string) {
+    const space = store.activeSpace;
+    return new Set([tabId, ...(space.activeTabId ? [space.activeTabId] : []), ...(space.split ?? [])]);
+  }
+
   async function unload(ids: string[]) {
     const closing = ids.map((id) => live.get(id)).filter((c): c is number => c !== undefined);
     for (const id of ids) {
@@ -614,6 +620,7 @@ async function start() {
       ...(tab.homeUrl && tab.homeUrl !== tab.url ? [{ label: 'Go Back to Pinned URL', run: does('goHome', tabId) }] : []),
       SEPARATOR,
       { label: zone === 'today' ? 'Close Tab' : 'Unload Tab', run: does('close', tabId) },
+      { label: 'Unload Other Tabs', enabled: [...live.keys()].some((id) => !unloadKeeps(tabId).has(id)), run: does('unloadOthers', tabId) },
       ...(zone === 'today'
         ? [
             { label: 'Close Tabs Below', run: does('closeTabs', tabId, 'below') },
@@ -752,6 +759,11 @@ async function start() {
       if (!home) return;
       if (chromeId !== undefined) void chrome.tabs.update(chromeId, { url: home });
       else store.updateTab(id, { url: home });
+    },
+    // Frees their memory; they stay in the sidebar and load again when opened.
+    unloadOthers: (id: string) => {
+      const keep = unloadKeeps(String(id));
+      void unload([...live.keys()].filter((t) => !keep.has(t))).then(sendState);
     },
     closeTabs: (id: string, which: string) => void unload(store.closeTodayTabs(id, which === 'others' ? 'others' : 'below')),
     updateSpace: (id: string, patch: { name?: string; emoji?: string; color?: string; pinnedExtensions?: string[] }) => store.updateSpace(id, patch ?? {}),
@@ -1086,7 +1098,18 @@ async function start() {
   if (!incognito) void chrome.alarms.get(ARCHIVE_ALARM).then((alarm) => void (alarm ?? chrome.alarms.create(ARCHIVE_ALARM, { periodInMinutes: 60 })));
   const archiveStale = () => void unload(store.archiveStale());
 
-  return { onCreated, onUpdated, onActivated, onRemoved, openPalette, runCommand, archiveStale };
+  // Chromium gives a tab it discarded on its own (Memory Saver) a new id; the Flecha tab follows it.
+  function onReplaced(added: number, removed: number) {
+    const id = flechaIdFor(removed);
+    if (!id) return;
+    live.set(id, added);
+    const color = siteColors.get(removed);
+    siteColors.delete(removed);
+    if (color) siteColors.set(added, color);
+    rememberLive();
+  }
+
+  return { onCreated, onUpdated, onActivated, onRemoved, onReplaced, openPalette, runCommand, archiveStale };
 }
 
 const url = (tab: chrome.tabs.Tab) => tab.pendingUrl || tab.url || '';
@@ -1115,6 +1138,7 @@ chrome.tabs.onCreated.addListener((tab) => void ready.then((r) => r.onCreated(ta
 chrome.tabs.onUpdated.addListener((id, info, tab) => void ready.then((r) => r.onUpdated(id, info, tab)));
 chrome.tabs.onActivated.addListener((info) => void ready.then((r) => r.onActivated(info)));
 chrome.tabs.onRemoved.addListener((id) => void ready.then((r) => r.onRemoved(id)));
+chrome.tabs.onReplaced.addListener((added, removed) => void ready.then((r) => r.onReplaced(added, removed)));
 chrome.alarms.onAlarm.addListener((alarm) => alarm.name === ARCHIVE_ALARM && void ready.then((r) => r.archiveStale()));
 chrome.alarms.onAlarm.addListener((alarm) => alarm.name === UPDATE_ALARM && void checkForUpdate());
 registerUpdates();

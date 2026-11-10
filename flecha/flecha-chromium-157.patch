@@ -3603,6 +3603,48 @@ index 0000000000000000000000000000000000000000..0006ff108f4e5f494969ef633f4abb75
 +}
 +
 +#endif  // CHROME_BROWSER_FLECHA_FLECHA_SPACES_H_
+diff --git a/chrome/browser/performance_manager/user_tuning/battery_saver_mode_manager.cc b/chrome/browser/performance_manager/user_tuning/battery_saver_mode_manager.cc
+index db3376b5a2fa0d9f8da98b4e108d5be0b0540247..d2d2c223c5af60745815be9b45c3a033e0ecb665 100644
+--- a/chrome/browser/performance_manager/user_tuning/battery_saver_mode_manager.cc
++++ b/chrome/browser/performance_manager/user_tuning/battery_saver_mode_manager.cc
+@@ -21,6 +21,7 @@
+ #include "base/process/process.h"
+ #include "base/run_loop.h"
+ #include "base/scoped_multi_source_observation.h"
++#include "base/strings/string_number_conversions.h"
+ #include "base/values.h"
+ #include "components/performance_manager/freezing/freezing_policy.h"
+ #include "components/performance_manager/performance_manager_impl.h"
+@@ -69,12 +70,28 @@ constexpr int kBatterySaverModeThresholdAdjustmentForDisplayLevel = 3;
+ constexpr int kBatterySaverModeThresholdAdjustmentForDisplayLevel = 0;
+ #endif  // BUILDFLAG(IS_CHROMEOS)
+ 
++int GetMaxRate() {
++  auto* command_line = base::CommandLine::ForCurrentProcess();
++  int fps;
++
++  if (command_line->HasSwitch("energy-saver-fps-limit") &&
++      base::StringToInt(command_line->GetSwitchValueASCII(
++        "energy-saver-fps-limit"), &fps) && fps > 0) {
++    return fps;
++  }
++
++  return 30;
++}
++
+ class FrameThrottlingDelegateImpl
+     : public performance_manager::user_tuning::BatterySaverModeManager::
+           FrameThrottlingDelegate {
+  public:
+   void StartThrottlingAllFrameSinks() override {
+-    content::StartThrottlingAllFrameSinks(base::Hertz(30));
++    static int max_rate = GetMaxRate();
++    if (max_rate < 9000) {
++      content::StartThrottlingAllFrameSinks(base::Hertz(max_rate));
++    }
+   }
+ 
+   void StopThrottlingAllFrameSinks() override {
 diff --git a/chrome/browser/prefs/browser_prefs.cc b/chrome/browser/prefs/browser_prefs.cc
 index 0476350e5654b8a439e45282c5813a24240a549e..e8a40b08b712de6b96fffcf25fa49726fb81c68d 100644
 --- a/chrome/browser/prefs/browser_prefs.cc
@@ -6361,6 +6403,37 @@ index 54369c7b791d0b8c808ccf8eed1eee420a8cc932..17946a7248969e0e5d727e47904f9b63
  }
  
  void WindowSizer::AdjustBoundsToBeVisibleOnDisplay(
+diff --git a/chrome/browser/ungoogled_flag_choices.h b/chrome/browser/ungoogled_flag_choices.h
+index 7e36b5d6a716145ebba7a0918420012a3df96904..94b83d97888c98d98f15ea6528571038f3d1f419 100644
+--- a/chrome/browser/ungoogled_flag_choices.h
++++ b/chrome/browser/ungoogled_flag_choices.h
+@@ -116,4 +116,12 @@ const FeatureEntry::FeatureVariation kSpoofWebGLChoices[] = {
+     {"NVIDIA GeForce GTX 980", kSpoofWebGL_Nvidia, nullptr},
+     {"Qualcomm Adreno 610", kSpoofWebGL_Qualcomm, nullptr},
+ };
++// Perseu: the frame rate Energy Saver throttles to (Helium's flag); "Disabled" leaves it alone.
++const FeatureEntry::Choice kEnergySaverFrameRateChoices[] = {
++    {flags_ui::kGenericExperimentChoiceAutomatic, "", ""},
++    {"30", "energy-saver-fps-limit", "30"},
++    {"60", "energy-saver-fps-limit", "60"},
++    {"120", "energy-saver-fps-limit", "120"},
++    {"Disabled", "energy-saver-fps-limit", "9001"},
++};
+ #endif  // CHROME_BROWSER_UNGOOGLED_FLAG_CHOICES_H_
+diff --git a/chrome/browser/ungoogled_flag_entries.h b/chrome/browser/ungoogled_flag_entries.h
+index 956eab4a3fd0fe8c2c9846b6c4c12ebf0992dbe8..6b7cc3cb5caf2edd9335188577e27fcab29cea51 100644
+--- a/chrome/browser/ungoogled_flag_entries.h
++++ b/chrome/browser/ungoogled_flag_entries.h
+@@ -149,4 +149,9 @@
+      "Hides the close, minimize, and maximize buttons on browser-drawn title "
+      "bars and reclaims their space for tabs. ungoogled-chromium flag.",
+      kOsDesktop, SINGLE_VALUE_TYPE("hide-window-buttons")},
++    {"energy-saver-fps-limit",
++     "Maximum frame rate for Energy Saver",
++     "Configures the frame rate the browser is throttled to when Energy Saver "
++     "is on. Perseu flag.",
++     kOsDesktop, MULTI_VALUE_TYPE(kEnergySaverFrameRateChoices)},
+ #endif  // CHROME_BROWSER_UNGOOGLED_FLAG_ENTRIES_H_
 diff --git a/chrome/browser/web_applications/commands/garbage_collect_storage_partitions_command.cc b/chrome/browser/web_applications/commands/garbage_collect_storage_partitions_command.cc
 index ecb3123778d9fbf59aadca7210ed05da7f6726cb..3bd209d07f7d215c47014c7c8f53de556d37e1ca 100644
 --- a/chrome/browser/web_applications/commands/garbage_collect_storage_partitions_command.cc
@@ -7094,6 +7167,48 @@ index b0b2b35b64bafe53685a8e208eee219dffdbf8fe..ad68bbb713eb93bb83afde94097c5262
  
  
  def GenerateDiffPatch(options, orig_file, new_file, patch_file):
+diff --git a/components/history_clusters/core/features.cc b/components/history_clusters/core/features.cc
+index 8124cbe075c457e4f132a5a3d481b2addd01681c..aa3b4b20afb030dffb0ea22c632fa3020adb28b9 100644
+--- a/components/history_clusters/core/features.cc
++++ b/components/history_clusters/core/features.cc
+@@ -15,11 +15,7 @@ namespace history_clusters {
+ namespace {
+ 
+ constexpr auto enabled_by_default_desktop_only =
+-#if BUILDFLAG(IS_ANDROID) || BUILDFLAG(IS_IOS)
+     base::FEATURE_DISABLED_BY_DEFAULT;
+-#else
+-    base::FEATURE_ENABLED_BY_DEFAULT;
+-#endif
+ 
+ }  // namespace
+ 
+diff --git a/components/performance_manager/features.cc b/components/performance_manager/features.cc
+index 5667f9107ac61e035dcc05662c83a5c0863583e2..5bc9ddb0e14fbe1e94845aacd8c06cd90ebafefb 100644
+--- a/components/performance_manager/features.cc
++++ b/components/performance_manager/features.cc
+@@ -235,7 +235,7 @@ BASE_FEATURE(kFreezingFollowsDiscardOptOut, base::FEATURE_ENABLED_BY_DEFAULT);
+ 
+ BASE_FEATURE(kRecordFreezingEligibilityUKM, base::FEATURE_ENABLED_BY_DEFAULT);
+ 
+-BASE_FEATURE(kInfiniteTabsFreezing, base::FEATURE_DISABLED_BY_DEFAULT);
++BASE_FEATURE(kInfiniteTabsFreezing, base::FEATURE_ENABLED_BY_DEFAULT);
+ 
+ BASE_FEATURE_PARAM(int,
+                    kInfiniteTabsFreezing_NumProtectedTabs,
+diff --git a/components/performance_manager/user_tuning/prefs.cc b/components/performance_manager/user_tuning/prefs.cc
+index 8effd2c5e03c16a04cec33db9ea49343e6aa65f2..a1d12c38c58d6be733d07be4b3cc36dc605eaef1 100644
+--- a/components/performance_manager/user_tuning/prefs.cc
++++ b/components/performance_manager/user_tuning/prefs.cc
+@@ -32,7 +32,7 @@ void RegisterLocalStatePrefs(PrefRegistrySimple* registry) {
+       kMemorySaverModeTimeBeforeDiscardInMinutes,
+       kDefaultMemorySaverModeTimeBeforeDiscardInMinutes);
+   registry->RegisterIntegerPref(
+-      kMemorySaverModeState, static_cast<int>(MemorySaverModeState::kDisabled));
++      kMemorySaverModeState, static_cast<int>(MemorySaverModeState::kEnabled));
+   registry->RegisterIntegerPref(
+       kMemorySaverModeAggressiveness,
+       static_cast<int>(MemorySaverModeAggressiveness::kMedium));
 diff --git a/components/remote_cocoa/app_shim/browser_native_widget_window_mac.h b/components/remote_cocoa/app_shim/browser_native_widget_window_mac.h
 index 48fec9db470511cd1214d4df3acda8484bc660c7..26412358a0172336030d4b3869077737777baeed 100644
 --- a/components/remote_cocoa/app_shim/browser_native_widget_window_mac.h
@@ -7243,6 +7358,32 @@ index 6552fb883448e9daeae38b046fc4e6c8c4cfdd4e..8d3083e83f537900f9989828cfd76d22
  
    // Add new entries at the end of the enum and be sure to update the
    // "ExtensionPermission3" enum in
+diff --git a/services/network/public/cpp/features.cc b/services/network/public/cpp/features.cc
+index 353a0965fc9fa8a1866ae871804feb5cbda4d8f8..e14c5c26af6079b2c239e304763c218e9c459556 100644
+--- a/services/network/public/cpp/features.cc
++++ b/services/network/public/cpp/features.cc
+@@ -416,7 +416,7 @@ BASE_FEATURE(kAllowSameOriginCredentialsWithDisableWebSecurity,
+ 
+ // https://github.com/patcg-individual-drafts/topics
+ // Kill switch for the Topics API.
+-BASE_FEATURE(kBrowsingTopics, base::FEATURE_ENABLED_BY_DEFAULT);
++BASE_FEATURE(kBrowsingTopics, base::FEATURE_DISABLED_BY_DEFAULT);
+ 
+ 
+ BASE_FEATURE(kIncreaseCookieAccessCacheSize, base::FEATURE_ENABLED_BY_DEFAULT);
+diff --git a/third_party/blink/renderer/platform/runtime_enabled_features.json5 b/third_party/blink/renderer/platform/runtime_enabled_features.json5
+index 0f5c0064729a71807db40a70d5a969658cd15ce6..c0c4eca684f32d03b553e7d08f45278d04500cfb 100644
+--- a/third_party/blink/renderer/platform/runtime_enabled_features.json5
++++ b/third_party/blink/renderer/platform/runtime_enabled_features.json5
+@@ -319,8 +319,6 @@
+     {
+       // Interest Group JS API/runtimeflag.
+       name: "AdInterestGroupAPI",
+-      origin_trial_feature_name: "AdInterestGroupAPI",
+-      implied_by: ["Fledge", "Parakeet"],
+       public: true,
+     },
+     // Adjust the end of the next paragraph if the end position for the
 diff --git a/tools/grit/grit/node/message.py b/tools/grit/grit/node/message.py
 index 74413e10aaeef9a863af3b0a6087f62ae4abcada..eb9fa57b271832127d51b8d555e382b2aa4994ec 100644
 --- a/tools/grit/grit/node/message.py
