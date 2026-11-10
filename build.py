@@ -357,6 +357,9 @@ def main():
     subprocess.run([sys.executable, str(_ROOT_DIR / 'flecha' / 'ci' / 'stage_shell.py'), 'out/Default'], check=True)
 
     # Ninja commandline
+    # V8's metagen runs `gn desc` and looks for gn under buildtools or on PATH; this build
+    # bootstraps gn into out\Default instead.
+    os.environ['PATH'] = str((source_tree / 'out' / 'Default').resolve()) + os.pathsep + os.environ.get('PATH', '')
     ninja_commandline = ['third_party\\ninja\\ninja.exe']
     if args.thread_count is not None:
         ninja_commandline.append('-j')
