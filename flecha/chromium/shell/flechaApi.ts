@@ -43,17 +43,33 @@ on('site-icons', (icons: Record<string, string>) => {
 // The frame page lays its window out: the background says how, this page adds the colour.
 let frameState: { sidebar: chrome.flechaPrivate.SidebarMode; overlay: boolean; topBarPeek?: boolean } | undefined;
 const windowId = surface === 'window' && framed ? chrome.flechaPrivate.getWindowId() : undefined;
+// Until the background lays the window out, this page covers all of it in the plain window colour (styles.css),
+// so neither a blank sidebar nor Chromium's own new tab page shows while the shell starts.
+void windowId?.then((id) => chrome.flechaPrivate.setFrame({ sidebar: 'docked', overlay: true, background: systemDark.matches ? '#101012' : '#f1f1f3', topBar: 0 }, id)).catch(() => undefined);
+let laidOut = false;
+// Never left covered if the background is slow to answer.
+setTimeout(() => !laidOut && void windowId?.then((id) => chrome.flechaPrivate.setFrame({ sidebar: 'docked', overlay: false, background: systemDark.matches ? '#101012' : '#f1f1f3', topBar: TOP_BAR_HEIGHT }, id)), 4000);
 function applyFrame() {
   if (!windowId || !frameState || !lastState) return;
+  laidOut = true;
   const background = spaceTint(lastState.tint, systemDark.matches);
   // A gradient Space: the window fades between its colours, top to bottom, as the sidebar does.
-  const gradient = lastState.tints?.map((c) => spaceTint(c, systemDark.matches));
+  const gradient = lastState.tints && lastState.tints.length > 1 ? lastState.tints.map((c) => spaceTint(c, systemDark.matches)) : undefined;
   // The top bar (topbar.ts), in the page's colour; the window buttons take its text colour.
   const topBarForeground = topBarColors(lastState.siteColor, systemDark.matches).fg;
   const { topBarPeek, ...layout } = frameState;
   // With the address in the sidebar the bar stays away until the pointer asks for it (-1: no room for it; the window buttons float over the page).
   const topBar = lastState.addressInSidebar && !topBarPeek ? -1 : TOP_BAR_HEIGHT;
-  void windowId.then((id) => chrome.flechaPrivate.setFrame({ ...layout, background, gradient, topBar, topBarForeground }, id));
+  const plain = { ...layout, background, topBar, topBarForeground };
+  void windowId.then((id) => {
+    if (!gradient) return chrome.flechaPrivate.setFrame(plain, id);
+    try {
+      return chrome.flechaPrivate.setFrame({ ...plain, gradient }, id);
+    } catch {
+      // A browser from before gradients rejects the whole frame for that one field; the frame matters more.
+      return chrome.flechaPrivate.setFrame(plain, id);
+    }
+  });
 }
 on('frame', (state) => {
   frameState = state;
@@ -190,6 +206,8 @@ const api: FlechaApi = {
   clearDownloads: cmd('clearDownloads'),
   promotePeek: cmd('promotePeek'),
   finishOnboarding: cmd('finishOnboarding'),
+  pinSites: cmd('pinSites'),
+  wantSiteIcons: cmd('wantSiteIcons'),
   setPreferences: cmd('setPreferences'),
   makeDefaultBrowser: cmd('makeDefaultBrowser'),
   newFlechinha: cmd('newFlechinha'),

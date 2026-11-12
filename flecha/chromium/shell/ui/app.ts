@@ -4,6 +4,7 @@ import { setupOnboarding } from './onboarding.js';
 import { spaceTint, DEFAULT_SPACE_COLOR } from '../lib/spaceTint';
 import { isDark, luminance } from '../lib/topBar';
 import { SPACE_COLORS, SPACE_EMOJIS } from './spaceChoices.js';
+import { fieldColor, fieldPoint, nextStop, paintField, throttled } from './colorField.js';
 import type { DownloadInfo, DropTarget, ExtensionsView, FlechaApi, HistoryEntry, NowPlaying, PaletteMode, PeekState, PinnedNode, Space, TabInfo, UiState } from '../../shared/types';
 
 declare global {
@@ -934,46 +935,7 @@ let colorIndex = 0;
 const colorField = $<HTMLCanvasElement>('space-color-field');
 const colorHex = $<HTMLInputElement>('space-color-hex');
 
-/** The field: hue across, from light pastel at the top to deep at the bottom. */
-const fieldColor = (x: number, y: number) => hslHex(x * 360, 0.72, 0.93 - y * 0.66);
-const fieldPoint = (hex: string) => {
-  const [hue, , l] = hexHsl(hex);
-  return { x: hue / 360, y: Math.min(1, Math.max(0, (0.93 - l) / 0.66)) };
-};
-
-function hslHex(hue: number, s: number, l: number) {
-  const k = (n: number) => (n + hue / 30) % 12;
-  const a = s * Math.min(l, 1 - l);
-  const f = (n: number) => Math.round(255 * (l - a * Math.max(-1, Math.min(k(n) - 3, 9 - k(n), 1))));
-  return '#' + [f(0), f(8), f(4)].map((c) => c.toString(16).padStart(2, '0')).join('');
-}
-
-function hexHsl(hex: string): [number, number, number] {
-  const [r, g, b] = [1, 3, 5].map((i) => parseInt(hex.slice(i, i + 2), 16) / 255);
-  const max = Math.max(r, g, b);
-  const min = Math.min(r, g, b);
-  const l = (max + min) / 2;
-  const d = max - min;
-  if (!d) return [0, 0, l];
-  const s = d / (1 - Math.abs(2 * l - 1));
-  const hue = max === r ? ((g - b) / d) % 6 : max === g ? (b - r) / d + 2 : (r - g) / d + 4;
-  return [(hue * 60 + 360) % 360, s, l];
-}
-
-// Drawn once, pixel by pixel, from the same formula the dots use.
-{
-  const ctx = colorField.getContext('2d')!;
-  const { width, height } = colorField;
-  const image = ctx.createImageData(width, height);
-  for (let y = 0; y < height; y++) {
-    for (let x = 0; x < width; x++) {
-      const hex = fieldColor(x / (width - 1), y / (height - 1));
-      const i = (y * width + x) * 4;
-      image.data.set([parseInt(hex.slice(1, 3), 16), parseInt(hex.slice(3, 5), 16), parseInt(hex.slice(5, 7), 16), 255], i);
-    }
-  }
-  ctx.putImageData(image, 0, 0);
-}
+paintField(colorField);
 
 const spaceColorsOf = (space: Space) => (space.colors?.length ? space.colors : [space.color === DEFAULT_SPACE_COLOR ? spaceTint(DEFAULT_SPACE_COLOR, false) : space.color]);
 
@@ -1004,15 +966,12 @@ $('space-color-add').onclick = () => {
   if (!space) return;
   const colors = spaceColorsOf(space);
   if (colors.length >= 3) return;
-  // The next colour starts a third of the way round the hue circle, at the same lightness.
-  const [hue, , l] = hexHsl(colors[colors.length - 1]);
   colorIndex = colors.length;
-  api.updateSpace(space.id, { colors: [...colors, hslHex((hue + 120) % 360, 0.72, Math.min(0.93, Math.max(0.27, l)))] });
+  api.updateSpace(space.id, { colors: [...colors, nextStop(colors[colors.length - 1])] });
 };
 
-// Dragging a dot (or pressing the field) changes the selected colour; a drag sends at most one change per frame.
-let dragFrame = 0;
-let dragColor: string | undefined;
+// Dragging a dot (or pressing the field) changes the selected colour: the dot follows the pointer at once, the Space a few times a second.
+const dragSend = throttled(setSpaceColor);
 colorField.parentElement!.addEventListener('pointerdown', (e) => {
   const space = state?.spaces.find((s) => s.id === editingSpace);
   if (!space) return;
@@ -1020,17 +979,23 @@ colorField.parentElement!.addEventListener('pointerdown', (e) => {
   if (dot) colorIndex = Number(dot.dataset.index);
   const box = colorField.getBoundingClientRect();
   const move = (ev: PointerEvent) => {
-    dragColor = fieldColor(Math.min(1, Math.max(0, (ev.clientX - box.left) / box.width)), Math.min(1, Math.max(0, (ev.clientY - box.top) / box.height)));
-    dragFrame ||= requestAnimationFrame(() => {
-      dragFrame = 0;
-      if (dragColor) setSpaceColor(dragColor);
-    });
+    const x = Math.min(1, Math.max(0, (ev.clientX - box.left) / box.width));
+    const y = Math.min(1, Math.max(0, (ev.clientY - box.top) / box.height));
+    const color = fieldColor(x, y);
+    const shown = document.querySelector<HTMLElement>('#space-color-dots .color-dot.selected');
+    if (shown) Object.assign(shown.style, { left: `${x * 100}%`, top: `${y * 100}%` }), shown.style.setProperty('--dot', color);
+    dragSend.push(color);
   };
   const target = e.currentTarget as HTMLElement;
   target.setPointerCapture(e.pointerId);
   move(e);
   target.addEventListener('pointermove', move);
-  target.addEventListener('pointerup', () => target.removeEventListener('pointermove', move), { once: true });
+  const end = () => {
+    target.removeEventListener('pointermove', move);
+    dragSend.flush();
+  };
+  target.addEventListener('pointerup', end, { once: true });
+  target.addEventListener('pointercancel', end, { once: true });
 });
 colorHex.addEventListener('input', () => {
   const value = colorHex.value.trim().replace(/^#?/, '#').toLowerCase();
@@ -2253,9 +2218,13 @@ api.onNowPlaying?.((song) => {
 });
 
 const renderOnboarding = setupOnboarding(api, h);
+// The window page stays blank until it knows whether the tour or the browser shows (styles.css); not forever if the background never answers.
+const shown = () => (document.documentElement.dataset.state = '');
+setTimeout(shown, 3000);
 api.onState((s) => {
   render(s);
   renderOnboarding(s);
+  shown();
   renderNowPlaying();
 });
 api.onPalette(openPalette);

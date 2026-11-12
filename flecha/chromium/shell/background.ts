@@ -889,6 +889,24 @@ async function start() {
     splitNew: (input: string) => store.splitWith(openTab(input, false).id),
     openSettings: (pane?: string) => showSettings(typeof pane === 'string' ? pane : undefined),
     finishOnboarding: () => store.setOnboarded(true),
+    // The tour's "apps you use every day": favorites of the current Space, loaded when first opened.
+    // The tour's app tiles show each site's own icon, fetched the way the sidebar's are.
+    wantSiteIcons: (hosts: unknown) => {
+      if (Array.isArray(hosts)) void siteIcons.want(hosts.filter((x): x is string => typeof x === 'string' && /^[a-z0-9.-]+$/.test(x)).slice(0, 24));
+    },
+    pinSites: spacesOnly((sites: unknown) => {
+      if (!Array.isArray(sites)) return;
+      const space = store.activeSpace;
+      const have = new Set(space.favorites.map((id) => store.state.tabs[id]?.url));
+      for (const site of sites.slice(0, 24)) {
+        const url = typeof site?.url === 'string' && /^https:\/\//.test(site.url) ? site.url : undefined;
+        if (!url || have.has(url)) continue;
+        const tab = store.addTab(url, { activate: false });
+        if (typeof site.title === 'string') store.updateTab(tab.id, { title: site.title.slice(0, 80) });
+        store.toggleFavorite(tab.id);
+        have.add(url);
+      }
+    }),
     setPreferences: (prefs: { theme?: string; searchEngine?: string; adBlock?: boolean }) => {
       if (prefs?.theme === 'system' || prefs?.theme === 'light' || prefs?.theme === 'dark') store.setPreferences({ theme: prefs.theme });
       if (prefs?.searchEngine) store.setSearchEngine(prefs.searchEngine as SearchEngineId);

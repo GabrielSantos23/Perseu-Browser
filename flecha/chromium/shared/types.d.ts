@@ -551,6 +551,10 @@ export interface FlechaApi {
   clearDownloads(): void;
   promotePeek(): void;
   finishOnboarding(): void;
+  /** Adds these sites to the current Space's favorites (the welcome tour); they load when first opened. */
+  pinSites(sites: Array<{ url: string; title: string }>): void;
+  /** Fetches these sites' own icons (by host); they arrive in the state's faviconUrls. */
+  wantSiteIcons(hosts: string[]): void;
   setPreferences(prefs: { theme?: 'system' | 'light' | 'dark'; searchEngine?: SearchEngineId; adBlock?: boolean }): void;
   makeDefaultBrowser(): void;
   /** An empty Flechinha, for a quick lookup. */

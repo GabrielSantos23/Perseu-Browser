@@ -50,6 +50,8 @@ function copyStatic() {
   fs.copyFileSync(path.join(here, 'offscreen.html'), path.join(out, 'offscreen.html'));
 
   for (const f of ['settings.html', 'settings-shell.css']) fs.copyFileSync(path.join(here, f), path.join(out, f));
+  // The welcome tour's fonts and paint, from perseu.dev (Mona Sans and Martian Mono are OFL).
+  fs.cpSync(path.join(ui, 'tour'), path.join(out, 'tour'), { recursive: true });
   copyFeatureStatic(out);
 }
 

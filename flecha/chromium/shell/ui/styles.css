@@ -3183,3 +3183,18 @@ body[data-sidebar='floating'] #sidebar.peek-leaving {
   font-size: var(--text-sm);
   color: var(--text-2);
 }
+
+/* Before the first state the window page covers the window in its plain colour (flechaApi.ts), rather than the browser for a moment before the welcome tour. */
+html[data-surface='window']:not([data-state]) {
+  background: #f1f1f3;
+}
+
+html[data-surface='window']:not([data-state]) body {
+  visibility: hidden;
+}
+
+@media (prefers-color-scheme: dark) {
+  html[data-surface='window']:not([data-state]) {
+    background: #101012;
+  }
+}

@@ -4804,10 +4804,10 @@ index 928a723e2e2275985432ffdf32c8e2063d9477d4..a434ae7bdb68451a5ef5a220580dc91e
        std::move(layout_views)));
 diff --git a/chrome/browser/ui/views/frame/flecha_frame_view.cc b/chrome/browser/ui/views/frame/flecha_frame_view.cc
 new file mode 100644
-index 0000000000000000000000000000000000000000..87a99d6a971397ebdc0265772d8b89143cfac767
+index 0000000000000000000000000000000000000000..f5be9720de62488f5f383c6a3033cbe3fe4b623a
 --- /dev/null
 +++ b/chrome/browser/ui/views/frame/flecha_frame_view.cc
-@@ -0,0 +1,904 @@
+@@ -0,0 +1,933 @@
 +// Copyright 2026 The Flecha Authors
 +// Use of this source code is governed by a BSD-style license that can be
 +// found in the LICENSE file.
@@ -5452,6 +5452,10 @@ index 0000000000000000000000000000000000000000..87a99d6a971397ebdc0265772d8b8914
 +}
 +
 +void FlechaFrameView::SetFrameState(const FlechaFrameState& new_state) {
++  // The shell has laid the window out: the page area shows (see OpenFramePage).
++  if (views::View* page = browser_view_->contents_container()) {
++    page->SetVisible(true);
++  }
 +  FlechaFrameState state = new_state;
 +  state.flechinha = state_.flechinha;
 +  state.fullscreen = state_.fullscreen;
@@ -5644,6 +5648,27 @@ index 0000000000000000000000000000000000000000..87a99d6a971397ebdc0265772d8b8914
 +  if (views::View* background = background_view()) {
 +    background->SetVisible(true);
 +  }
++  // Until the shell lays the window out (its first setFrame), the page area
++  // stays hidden, so Chromium's own new tab page never flashes at startup.
++  // Shown again by the shell's first setFrame, or after a few seconds if it
++  // never comes.
++  if (views::View* page = browser_view_->contents_container()) {
++    page->SetVisible(false);
++    base::SequencedTaskRunner::GetCurrentDefault()->PostDelayedTask(
++        FROM_HERE,
++        base::BindOnce(
++            [](base::WeakPtr<FlechaFrameView> frame) {
++              if (!frame) {
++                return;
++              }
++              if (views::View* page =
++                      frame->browser_view_->contents_container()) {
++                page->SetVisible(true);
++              }
++            },
++            weak_factory_.GetWeakPtr()),
++        base::Seconds(5));
++  }
 +  ApplyState();
 +}
 +
@@ -5687,6 +5712,10 @@ index 0000000000000000000000000000000000000000..87a99d6a971397ebdc0265772d8b8914
 +  }
 +  SetWebContents(nullptr);
 +  frame_contents_.reset();
++  // Without the shell the window is Chromium's own again.
++  if (views::View* page = browser_view_->contents_container()) {
++    page->SetVisible(true);
++  }
 +  ApplyState();
 +}
 +
