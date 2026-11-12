@@ -117,6 +117,15 @@
           </label>
           <div class="sm-row"><span class="sm-label">Colour</span><button id="space-color-reset" class="text-button" type="button">Reset</button></div>
           <div id="space-colors" class="swatches"></div>
+          <div class="color-field-wrap">
+            <canvas id="space-color-field" width="288" height="132" role="img" aria-label="Colour field: drag a dot to change its colour"></canvas>
+            <div id="space-color-dots"></div>
+          </div>
+          <div class="color-controls">
+            <div id="space-color-chips" role="radiogroup" aria-label="Gradient colours"></div>
+            <button id="space-color-add" class="color-add" aria-label="Add a colour" data-tip="Add a colour (up to 3)"><i data-icon="plus"></i></button>
+            <label class="color-hex"><span>#</span><input id="space-color-hex" maxlength="7" spellcheck="false" autocomplete="off" aria-label="Hex colour" /></label>
+          </div>
           <div class="field-label">Pinned extensions</div>
           <p id="space-extensions-hint" class="sm-hint">Pin extensions to this Space:</p>
           <div id="space-extensions" class="sm-extensions"></div>
@@ -150,6 +159,17 @@
           <button id="fav-card-home" class="icon-button" aria-label="Go back to pinned URL" data-tip="Go back to pinned URL"><i data-icon="undo"></i></button>
           <button id="fav-card-split" class="icon-button" aria-label="Open in split view" data-tip="Open in split view"><i data-icon="columns"></i></button>
           <button id="fav-card-more" class="icon-button" aria-label="More options" data-tip="More options"><i data-icon="more"></i></button>
+        </div>
+      </div>
+
+      <!-- A tab's card on hover (app.ts): beside the sidebar with the browser's frame. -->
+      <div id="tab-card" role="group" aria-label="Tab" hidden>
+        <strong id="tab-card-title"></strong>
+        <span id="tab-card-host"></span>
+        <div class="tab-card-actions">
+          <button id="tab-card-pin"><i data-icon="pin"></i><span>Pin</span></button>
+          <button id="tab-card-fav"><i data-icon="star"></i><span>Favorite</span></button>
+          <button id="tab-card-split"><i data-icon="columns"></i><span>Split</span></button>
         </div>
       </div>
 

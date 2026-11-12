@@ -332,6 +332,7 @@ const archiveAfter = document.getElementById('archiveAfter') as HTMLSelectElemen
 const peekPinnedLinks = document.getElementById('peekPinnedLinks') as HTMLInputElement;
 const openLinksInFlechinha = document.getElementById('openLinksInFlechinha') as HTMLInputElement;
 const addressInSidebar = document.getElementById('addressInSidebar') as HTMLInputElement;
+const commandBar = document.getElementById('commandBar') as HTMLInputElement;
 
 for (const card of document.querySelectorAll<HTMLElement>('.theme-card')) {
   card.addEventListener('click', async () => render(await api.set({ theme: card.dataset.theme as SettingsView['theme'] })));
@@ -340,6 +341,7 @@ archiveAfter.addEventListener('change', async () => render(await api.set({ archi
 peekPinnedLinks.addEventListener('change', async () => render(await api.set({ peekPinnedLinks: peekPinnedLinks.checked })));
 openLinksInFlechinha.addEventListener('change', async () => render(await api.set({ openLinksInFlechinha: openLinksInFlechinha.checked })));
 addressInSidebar.addEventListener('change', async () => render(await api.set({ addressInSidebar: addressInSidebar.checked })));
+commandBar.addEventListener('change', async () => render(await api.set({ commandBar: commandBar.checked })));
 
 // ---- keyboard shortcuts: click a key cap, press the new keys --------------------------
 
@@ -481,6 +483,7 @@ function render(view: SettingsView) {
   archiveAfter.value = String(view.archiveAfterHours);
   peekPinnedLinks.checked = view.peekPinnedLinks;
   addressInSidebar.checked = view.addressInSidebar;
+  commandBar.checked = view.commandBar;
   if (!recordingId) {
     shortcuts = view.shortcuts;
     renderShortcuts();
@@ -541,9 +544,6 @@ updateAction.addEventListener('click', () => void (updateReady ? api.installUpda
 searchEngine.addEventListener('change', async () =>
   render(await api.set({ searchEngine: searchEngine.value as SettingsView['searchEngine'] })),
 );
-const auddToken = document.getElementById('auddToken') as HTMLInputElement;
-void chrome.storage.local.get('auddToken').then((saved) => (auddToken.value = String(saved.auddToken ?? '')));
-auddToken.addEventListener('change', () => void chrome.storage.local.set({ auddToken: auddToken.value.trim() }));
 document.getElementById('openUblock')!.addEventListener('click', () => void chrome.tabs.create({ url: 'chrome-extension://hondaflceahejakmcphhbjmjlacadinj/dashboard.html' }));
 
 api.get().then(render);

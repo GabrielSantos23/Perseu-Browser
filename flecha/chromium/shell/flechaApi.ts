@@ -27,7 +27,7 @@ const stateListeners: Array<(state: UiState) => void> = [];
 let lastState: UiState | undefined;
 function emitState(state: UiState) {
   lastState = state;
-  const shown = { ...state, tint: spaceTint(state.tint, systemDark.matches), faviconUrls: siteIcons };
+  const shown = { ...state, tint: spaceTint(state.tint, systemDark.matches), tints: state.tints?.map((c) => spaceTint(c, systemDark.matches)), faviconUrls: siteIcons };
   for (const cb of stateListeners) cb(shown);
   applyFrame();
 }
@@ -46,12 +46,14 @@ const windowId = surface === 'window' && framed ? chrome.flechaPrivate.getWindow
 function applyFrame() {
   if (!windowId || !frameState || !lastState) return;
   const background = spaceTint(lastState.tint, systemDark.matches);
+  // A gradient Space: the window fades between its colours, top to bottom, as the sidebar does.
+  const gradient = lastState.tints?.map((c) => spaceTint(c, systemDark.matches));
   // The top bar (topbar.ts), in the page's colour; the window buttons take its text colour.
   const topBarForeground = topBarColors(lastState.siteColor, systemDark.matches).fg;
   const { topBarPeek, ...layout } = frameState;
   // With the address in the sidebar the bar stays away until the pointer asks for it (-1: no room for it; the window buttons float over the page).
   const topBar = lastState.addressInSidebar && !topBarPeek ? -1 : TOP_BAR_HEIGHT;
-  void windowId.then((id) => chrome.flechaPrivate.setFrame({ ...layout, background, topBar, topBarForeground }, id));
+  void windowId.then((id) => chrome.flechaPrivate.setFrame({ ...layout, background, gradient, topBar, topBarForeground }, id));
 }
 on('frame', (state) => {
   frameState = state;
@@ -169,6 +171,8 @@ const api: FlechaApi = {
   editBoost: cmd('editBoost'),
   openBoostsFolder: cmd('openBoostsFolder'),
   splitWith: cmd('splitWith'),
+  togglePin: cmd('togglePin'),
+  toggleFavorite: cmd('toggleFavorite'),
   goHome: cmd('goHome'),
   setTabDragging: cmd('setTabDragging'),
   dropToSplit: cmd('dropToSplit'),
@@ -195,6 +199,7 @@ const api: FlechaApi = {
     await chrome.flechaPrivate.openExtensionAction(id, anchor, await windowId).catch(() => cmd('flash')(`${name} isn’t available on this page`));
   },
   extensionMenu: (id) => void showMenu('extensionMenu', id),
+  reloadMenu: (at) => void showMenu('reloadMenu', '', at),
   moveExtension: cmd('moveExtension'),
   setExtensionsCollapsed: cmd('setExtensionsCollapsed'),
 };

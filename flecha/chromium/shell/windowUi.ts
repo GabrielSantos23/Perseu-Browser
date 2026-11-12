@@ -57,7 +57,7 @@ export function setupWindowUi(h: WindowUiHooks) {
 }
 
 /** Asks for the background's menu `name` about `id`, shows it at the pointer and runs the pick. */
-export async function showMenu(name: 'tabMenu' | 'spaceMenu' | 'extensionMenu' | 'appMenu', id: string, at?: { right: number; top: number }) {
+export async function showMenu(name: 'tabMenu' | 'spaceMenu' | 'extensionMenu' | 'appMenu' | 'reloadMenu', id: string, at?: { right: number; top: number }) {
   const items = await invoke<MenuEntry<MenuRun>[] | undefined>(name, id);
   if (!items?.length) return;
   const picked = await overWindow('menu', () => popupMenu(items, at));
@@ -65,11 +65,11 @@ export async function showMenu(name: 'tabMenu' | 'spaceMenu' | 'extensionMenu' |
 }
 
 // The top bar's "⋮": the bar is too short to draw it, so this window's frame page does.
-on('app-menu', async (window: string | null, at: { right: number; top: number }) => {
+on('app-menu', async (window: string | null, at: { right: number; top: number }, menu: 'appMenu' | 'reloadMenu' = 'appMenu') => {
   if (!windowId || window !== new URLSearchParams(location.search).get('window')) return;
   // The arrow keys go to the menu, not to the top bar that was clicked.
   await chrome.flechaPrivate.focus('frame', await windowId);
-  await showMenu('appMenu', '', at);
+  await showMenu(menu, '', at);
 });
 
 /** A menu the frame page builds itself (the site panel's "…"); resolves with the picked id. */

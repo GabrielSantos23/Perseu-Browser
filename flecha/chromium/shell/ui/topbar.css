@@ -161,6 +161,8 @@ button {
 #zoom {
   height: 24px;
   margin-left: auto;
+  /* Clear of the browser menu button, which sits beside the window buttons. */
+  margin-right: 34px;
   padding: 0 8px;
   border-radius: var(--radius-sm);
   font-weight: 500;
@@ -193,6 +195,13 @@ button {
 @keyframes toast-in {
   from {
     opacity: 0;
+  }
+}
+
+/* Fullscreen has no window buttons (flecha_frame_view.cc hides them). */
+@media (display-mode: fullscreen) {
+  #bar {
+    --window-buttons: 6px;
   }
 }
 

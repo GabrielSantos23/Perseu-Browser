@@ -16,6 +16,8 @@ export interface TabInfo {
   parentId?: string;
   loading?: boolean;
   lastActive: number;
+  /** When the tab was last the selected one; closing the selected tab goes back to the one before it. */
+  lastSelected?: number;
   /** Back/forward entries (with scroll position) so a tab comes back as it was after a restart. */
   history?: { entries: Array<{ url: string; title: string; pageState?: string }>; index: number };
 }
@@ -37,6 +39,8 @@ export interface Space {
   name: string;
   emoji?: string;
   color: string;
+  /** Two or three colours the window fades between, top to bottom; `color` is the first. */
+  colors?: string[];
   favorites: string[];
   pinned: PinnedNode[];
   today: string[];
@@ -144,6 +148,8 @@ export interface BrowserState {
   peekPinnedLinks?: boolean;
   /** The address and back/forward/reload sit at the top of the sidebar instead of the bar above the page. Default off. */
   addressInSidebar?: boolean;
+  /** New Tab (Ctrl+T, the sidebar's button) opens the command bar; off opens a Home tab. Default on. */
+  commandBar?: boolean;
   /** Links arriving from other apps open in a Flechinha instead of a tab. Default on. */
   openLinksInFlechinha?: boolean;
   /** Today tabs untouched this long are archived; 0 keeps them forever. Default 12. */
@@ -187,6 +193,8 @@ export interface UiState extends BrowserState {
   searchEngineName: string;
   /** The active Space's colour, darkened in dark mode. */
   tint: string;
+  /** With a gradient Space, all of its colours (tint is the first), darkened the same way. */
+  tints?: string[];
   /** docked: always there. hidden: a hover strip at the left edge. floating: shown over the page until the mouse leaves. */
   sidebarMode: 'docked' | 'hidden' | 'floating';
   /** Set when the active tab is on one of the configured environments. */
@@ -289,6 +297,7 @@ export interface SettingsView {
   archiveAfterHours: number;
   peekPinnedLinks: boolean;
   addressInSidebar: boolean;
+  commandBar: boolean;
   shortcuts: ShortcutInfo[];
   /** Set after recording a shortcut another command had, which lost it. */
   notice?: string;
@@ -478,7 +487,7 @@ export interface FlechaApi {
   stop(): void;
   switchSpace(spaceId: string): void;
   newSpace(): void;
-  updateSpace(spaceId: string, patch: { name?: string; emoji?: string; color?: string; pinnedExtensions?: string[] }): void;
+  updateSpace(spaceId: string, patch: { name?: string; emoji?: string; color?: string; colors?: string[]; pinnedExtensions?: string[] }): void;
   /** Lets the frame page cover the whole window while a menu of its own is open (Chromium build only). */
   setOverlay?(name: string, on: boolean): void;
   /** The top bar asked for the site panel under its button (`rect` in window coordinates). */
@@ -526,6 +535,10 @@ export interface FlechaApi {
   editBoost(kind: 'script' | 'styles'): void;
   openBoostsFolder(): void;
   splitWith(tabId: string): void;
+  togglePin(tabId: string): void;
+  /** Reload's menu (hold the button): normal, hard, and emptying the cache first. */
+  reloadMenu(at?: { right: number; top: number }): void;
+  toggleFavorite(tabId: string): void;
   goHome(tabId: string): void;
   /** While a tab is dragged, the sidebar UI covers the page so it can be dropped there. */
   setTabDragging(dragging: boolean): void;

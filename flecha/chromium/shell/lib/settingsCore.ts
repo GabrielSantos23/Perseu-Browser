@@ -40,6 +40,7 @@ export function settingsView(store: Store, env: SettingsEnvironment): SettingsVi
     archiveAfterHours: s.archiveAfterHours ?? 12,
     peekPinnedLinks: s.peekPinnedLinks !== false,
     addressInSidebar: !!s.addressInSidebar,
+    commandBar: s.commandBar !== false,
     shortcuts: shortcutList(s),
     openLinksInFlechinha: s.openLinksInFlechinha !== false,
     agent: {
@@ -93,8 +94,8 @@ export async function applySettings(store: Store, patch: SettingsPatch, effects:
   }
   if (patch.environments !== undefined) store.setEnvironments(sanitizeEnvironments(patch.environments));
   if (patch.askWhereToSave !== undefined) store.setDownloads({ askWhereToSave: patch.askWhereToSave });
-  if (patch.theme || patch.peekPinnedLinks !== undefined || patch.addressInSidebar !== undefined) {
-    store.setPreferences({ theme: patch.theme, peekPinnedLinks: patch.peekPinnedLinks, addressInSidebar: patch.addressInSidebar });
+  if (patch.theme || patch.peekPinnedLinks !== undefined || patch.addressInSidebar !== undefined || patch.commandBar !== undefined) {
+    store.setPreferences({ theme: patch.theme, peekPinnedLinks: patch.peekPinnedLinks, addressInSidebar: patch.addressInSidebar, commandBar: patch.commandBar });
     effects.theme(store.state.theme ?? 'system');
   }
   if (patch.openLinksInFlechinha !== undefined) store.setOpenLinksInFlechinha(patch.openLinksInFlechinha);

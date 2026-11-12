@@ -13,7 +13,7 @@
  */
 import type { DownloadInfo } from '../shared/types';
 import { broadcast, handle, onConnect } from './hub';
-import { sessionKey } from './incognito';
+import { incognito, sessionKey } from './incognito';
 
 // Each copy of the shell (regular, incognito) keeps its own.
 const SINCE_KEY = sessionKey('downloadsSince');
@@ -45,8 +45,11 @@ function toInfo(item: chrome.downloads.DownloadItem): DownloadInfo {
 
 async function items(): Promise<DownloadInfo[]> {
   const found = await chrome.downloads.search({ startedAfter: await since, orderBy: ['-startTime'] });
-  return found.map(toInfo);
+  return found.filter(ours).map(toInfo);
 }
+
+/** Chromium tells both copies of the shell about every download; each lists its own profile's. */
+const ours = (item: chrome.downloads.DownloadItem) => item.incognito === incognito;
 
 let progressTimer: ReturnType<typeof setInterval> | undefined;
 
@@ -65,7 +68,7 @@ async function emit(started?: chrome.downloads.DownloadItem) {
 export function registerDownloads() {
   // The sidebar is Flecha's download UI.
   void chrome.downloads.setUiOptions({ enabled: false }).catch(() => undefined);
-  chrome.downloads.onCreated.addListener((item) => void emit(item));
+  chrome.downloads.onCreated.addListener((item) => ours(item) && void emit(item));
   chrome.downloads.onChanged.addListener(() => void emit());
   chrome.downloads.onErased.addListener(() => void emit());
   onConnect(() => void emit());

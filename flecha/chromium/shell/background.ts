@@ -130,7 +130,7 @@ async function start() {
   function addTab(address: string, opts: Parameters<Store['addTab']>[1]) {
     const blank = !address || address === 'about:blank' || isStartPage({ url: address } as chrome.tabs.Tab);
     const tab = store.addTab(blank ? 'about:blank' : address, opts);
-    if (blank) store.updateTab(tab.id, { title: 'New Tab' });
+    if (blank) store.updateTab(tab.id, { title: 'Home' });
     return tab;
   }
 
@@ -181,6 +181,7 @@ async function start() {
       searchEngineName: searchEngine(store.state.searchEngine).name,
       // The light tint; pages darken it themselves, since only they know the system appearance.
       tint: store.activeSpace.color,
+      tints: store.activeSpace.colors,
       sidebarMode: store.state.sidebarVisible ? 'docked' : frame.sidebarPeek ? 'floating' : 'hidden',
       environment: store.activeTab ? describeEnvironment(store.activeTab.url, store.state.environments) : undefined,
       localServers: features?.localServers() ?? [],
@@ -225,6 +226,8 @@ async function start() {
   function openPalette(mode: string) {
     // The tour asks you to try the real shortcuts and shows what they do.
     if (tourKey(({ 'new-tab': 'newTab', navigate: 'openLocation', split: 'splitNew' } as Record<string, string>)[mode])) return;
+    // Command bar turned off in Settings: New Tab opens a Home tab.
+    if (mode === 'new-tab' && store.state.commandBar === false) return void addTab('', {});
     frame.paletteOpen = true;
     sendFrame();
     broadcast('palette', mode);
@@ -253,6 +256,8 @@ async function start() {
       livePartition.set(id, partition);
       if (tab.muted) void chrome.tabs.update(chromeId, { muted: true });
       rememberLive();
+      // Its first "loading" came before it was known here.
+      void chrome.tabs.get(chromeId).then((t) => store.updateTab(id, { loading: t.status === 'loading' }), () => undefined);
       return chromeId;
     } finally {
       creating--;
@@ -502,10 +507,24 @@ async function start() {
   };
   // Icons for tabs that haven't loaded their own yet.
   const wantFavicons = () => void favicons.want(Object.values(store.state.tabs).filter((t) => !t.favicon).map((t) => t.url));
+  // Chromium's own default search engine (the page menu's "Search for…") follows Settings.
+  let chromiumEngine: string | undefined;
+  const syncSearchEngine = (retry = 3) => {
+    const engine = searchEngine(store.state.searchEngine);
+    if (incognito || engine.url === chromiumEngine || typeof chrome.flechaPrivate?.setDefaultSearchEngine !== 'function') return;
+    chromiumEngine = engine.url;
+    chrome.flechaPrivate.setDefaultSearchEngine(engine.name, engine.url).catch(() => {
+      // Chromium loads its engines lazily: ask again in a moment.
+      chromiumEngine = undefined;
+      if (retry) setTimeout(() => syncSearchEngine(retry - 1), 2000);
+    });
+  };
+  syncSearchEngine();
   store.onChange(() => {
     sync();
     sendStateSoon();
     wantFavicons();
+    syncSearchEngine();
   });
 
   // ---- Chromium → Flecha ----------------------------------------------------
@@ -515,6 +534,8 @@ async function start() {
     // A Flechinha's page isn't one of Flecha's tabs. Asked of the browser: a new Flechinha's
     // first tab arrives before openFlechinha() has told us its window.
     if (await isFlechinhaWindow(tab.windowId)) return;
+    // A page's pop-up (a Google sign-in, say) is a window of its own, not one of the Space's tabs.
+    if ((await chrome.windows.get(tab.windowId).catch(() => undefined))?.type === 'popup') return;
     const opener = tab.openerTabId !== undefined ? flechaIdFor(tab.openerTabId) : undefined;
     const added = addTab(url(tab), { activate: tab.active, afterTabId: opener, parentId: opener });
     live.set(added.id, tab.id!);
@@ -529,10 +550,10 @@ async function start() {
     const patch: Parameters<Store['updateTab']>[1] = {};
     // Chromium's new tab page is Flecha's empty state: the tab is still a blank one.
     if (info.url) patch.url = isStartPage({ url: info.url } as chrome.tabs.Tab) ? 'about:blank' : info.url;
-    // A blank tab keeps its "New Tab" name: the new tab page's own title and icon aren't its.
+    // A blank tab keeps its "Home" name: the new tab page's own title and icon aren't its.
     const blank = (patch.url ?? store.state.tabs[id]?.url) === 'about:blank';
     if (info.title && !blank) patch.title = info.title;
-    if (blank) patch.title = 'New Tab';
+    if (blank) patch.title = 'Home';
     if (info.favIconUrl && !blank) patch.favicon = info.favIconUrl;
     if (blank) patch.favicon = undefined;
     if (info.status) patch.loading = info.status === 'loading';
@@ -545,8 +566,10 @@ async function start() {
   }
 
   function onActivated({ tabId }: { tabId: number }) {
-    refreshSiteColor(tabId);
     const id = flechaIdFor(tabId);
+    // A pop-up's tab isn't Flecha's: its colour isn't the top bar's.
+    if (!id) return;
+    refreshSiteColor(tabId);
     if (id && store.activeSpace.activeTabId !== id) store.activate(id);
   }
 
@@ -646,6 +669,16 @@ async function start() {
   }
 
   /** The "⋮" beside the window buttons. */
+  /** Reload pressed and held (Chrome shows it with DevTools open): the three ways to reload. */
+  function reloadMenu(): MenuEntry<MenuRun>[] {
+    const shown = (id: ShortcutId) => displayKeys(keysFor(store.state, id));
+    return [
+      { label: 'Normal Reload', run: does('run', 'reload'), keys: shown('reload') },
+      { label: 'Hard Reload', run: does('run', 'hardReload'), keys: shown('hardReload') },
+      { label: 'Empty Cache and Hard Reload', run: does('emptyCacheReload') },
+    ];
+  }
+
   function appMenu(): MenuEntry<MenuRun>[] {
     const shown = (id: ShortcutId) => displayKeys(keysFor(store.state, id));
     const browser = (name: string): MenuRun => ({ browser: name });
@@ -740,7 +773,16 @@ async function start() {
     tabMenu: (id: string) => tabMenu(String(id)),
     spaceMenu: (id: string) => spaceMenu(String(id)),
     appMenu,
-    openAppMenu: (window: unknown, at: unknown) => broadcast('app-menu', window, at),
+    reloadMenu,
+    openAppMenu: (window: unknown, at: unknown, menu?: unknown) => broadcast('app-menu', window, at, menu === 'reloadMenu' ? 'reloadMenu' : 'appMenu'),
+    emptyCacheReload: async () => {
+      const chromeId = activeChromeId();
+      const url = chromeId === undefined ? undefined : (await chrome.tabs.get(chromeId).catch(() => undefined))?.url;
+      if (chromeId === undefined || !url) return;
+      const origin = /^https?:/.test(url) ? new URL(url).origin : undefined;
+      if (origin) await chrome.browsingData.remove({ origins: [origin] }, { cache: true, cacheStorage: true }).catch(() => undefined);
+      await chrome.tabs.reload(chromeId, { bypassCache: true });
+    },
     setOverlay: (name: string, on: boolean) => {
       if (on) frame.overlays.add(String(name));
       else frame.overlays.delete(String(name));
@@ -766,7 +808,7 @@ async function start() {
       void unload([...live.keys()].filter((t) => !keep.has(t))).then(sendState);
     },
     closeTabs: (id: string, which: string) => void unload(store.closeTodayTabs(id, which === 'others' ? 'others' : 'below')),
-    updateSpace: (id: string, patch: { name?: string; emoji?: string; color?: string; pinnedExtensions?: string[] }) => store.updateSpace(id, patch ?? {}),
+    updateSpace: (id: string, patch: { name?: string; emoji?: string; color?: string; colors?: string[]; pinnedExtensions?: string[] }) => store.updateSpace(id, patch ?? {}),
     // Its open tabs reopen in the other partition (sync() finds them in the wrong one).
     setSpaceIsolated: spacesOnly((id: string, isolated: boolean) => {
       if (!canIsolate) return broadcast('flash', 'Separate cookies aren’t in this build yet');
@@ -1109,7 +1151,15 @@ async function start() {
     rememberLive();
   }
 
-  return { onCreated, onUpdated, onActivated, onRemoved, onReplaced, openPalette, runCommand, archiveStale };
+  // Chromium says "loading" only once the new page commits; a slow server would show nothing until then.
+  function onNavigationStart(chromeId: number, loading: boolean) {
+    const id = flechaIdFor(chromeId);
+    if (!id) return;
+    store.updateTab(id, { loading });
+    if (chromeId === activeChromeId()) void refreshNav().then(sendState);
+  }
+
+  return { onCreated, onUpdated, onActivated, onRemoved, onReplaced, onNavigationStart, openPalette, runCommand, archiveStale };
 }
 
 const url = (tab: chrome.tabs.Tab) => tab.pendingUrl || tab.url || '';
@@ -1139,6 +1189,8 @@ chrome.tabs.onUpdated.addListener((id, info, tab) => void ready.then((r) => r.on
 chrome.tabs.onActivated.addListener((info) => void ready.then((r) => r.onActivated(info)));
 chrome.tabs.onRemoved.addListener((id) => void ready.then((r) => r.onRemoved(id)));
 chrome.tabs.onReplaced.addListener((added, removed) => void ready.then((r) => r.onReplaced(added, removed)));
+chrome.webNavigation.onBeforeNavigate.addListener((d) => d.frameId === 0 && void ready.then((r) => r.onNavigationStart(d.tabId, true)));
+chrome.webNavigation.onErrorOccurred.addListener((d) => d.frameId === 0 && void ready.then((r) => r.onNavigationStart(d.tabId, false)));
 chrome.alarms.onAlarm.addListener((alarm) => alarm.name === ARCHIVE_ALARM && void ready.then((r) => r.archiveStale()));
 chrome.alarms.onAlarm.addListener((alarm) => alarm.name === UPDATE_ALARM && void checkForUpdate());
 registerUpdates();

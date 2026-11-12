@@ -17,6 +17,10 @@ function copyStatic() {
   const manifest = JSON.parse(fs.readFileSync(path.join(here, 'manifest.json'), 'utf8'));
   // Lets the shell load in an older stock browser (e.g. Helium on Chromium 157) while prototyping its UI.
   if (process.env.FLECHA_MIN_CHROME) manifest.minimum_chrome_version = process.env.FLECHA_MIN_CHROME;
+  // Chromium keeps an extension's old background worker until its version changes, so each build
+  // gets its own: 0.1.<day since 2024>.<minute of the day> (each part must stay under 65536).
+  const now = Date.now();
+  manifest.version = `0.1.${Math.floor(now / 864e5) - 19723}.${Math.floor((now % 864e5) / 6e4)}`;
   fs.writeFileSync(path.join(out, 'manifest.json'), JSON.stringify(manifest, null, 2));
   for (const f of fs.readdirSync(ui)) if (f.endsWith(".css") || f.endsWith(".png") || f.endsWith(".webp")) fs.copyFileSync(path.join(ui, f), path.join(out, f));
   fs.copyFileSync(

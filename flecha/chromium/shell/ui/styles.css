@@ -31,7 +31,7 @@ body {
   padding: 10px 8px 8px;
   /* Painted opaque on purpose: Chromium does not clear stale frames under transparent
      pixels of an overlaid view, which made old rows ghost behind new ones. */
-  background: var(--space-color, #cdd9f7) url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='180' height='180'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='.85' numOctaves='2' stitchTiles='stitch'/%3E%3CfeColorMatrix values='0 0 0 0 .5 0 0 0 0 .5 0 0 0 0 .5 0 0 0 .55 0'/%3E%3C/filter%3E%3Crect width='180' height='180' filter='url(%23n)' opacity='.16'/%3E%3C/svg%3E");
+  background: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='180' height='180'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='.85' numOctaves='2' stitchTiles='stitch'/%3E%3CfeColorMatrix values='0 0 0 0 .5 0 0 0 0 .5 0 0 0 0 .5 0 0 0 .55 0'/%3E%3C/filter%3E%3Crect width='180' height='180' filter='url(%23n)' opacity='.16'/%3E%3C/svg%3E"), var(--space-gradient, none) var(--space-color, #cdd9f7);
 }
 
 .toolbar {
@@ -116,6 +116,8 @@ body[data-address='top'] .address-only {
   flex: 1;
   min-height: 0;
   display: flex;
+  /* The Space switch slide (app.ts slideSpace) stays inside the sidebar. */
+  overflow-x: clip;
 }
 
 /* Downloads at the left edge, the Spaces in the middle, a new Space at the right edge. */
@@ -500,7 +502,8 @@ body[data-address='top'] .address-only {
 }
 
 /* What a favorite is and what it can do; opens under its tile, inside the sidebar. */
-#fav-card {
+#fav-card,
+#tab-card {
   position: absolute;
   z-index: 6;
   width: 216px;
@@ -514,8 +517,77 @@ body[data-address='top'] .address-only {
   animation: fav-card-in var(--medium) var(--ease);
 }
 
-#fav-card[hidden] {
+#fav-card[hidden],
+#tab-card[hidden] {
   display: none;
+}
+
+#tab-card {
+  width: 248px;
+  padding: 12px 8px 8px;
+}
+
+/* The frame covers the window while it shows (setOverlay), so it can sit beside the sidebar. */
+[data-frame] #tab-card {
+  position: fixed;
+  left: calc(var(--sidebar) + 6px);
+}
+
+#tab-card-title,
+#tab-card-host {
+  display: block;
+  padding: 0 4px;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+#tab-card-title {
+  font-weight: 600;
+}
+
+#tab-card-host {
+  font-size: var(--text-sm);
+  opacity: 0.62;
+}
+
+.tab-card-actions {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 4px;
+  margin-top: 10px;
+}
+
+.tab-card-actions button {
+  display: grid;
+  justify-items: center;
+  gap: 4px;
+  padding: 8px 4px 6px;
+  border: 1px solid var(--menu-border);
+  border-radius: var(--radius-md);
+  background: transparent;
+  color: inherit;
+  font: 500 var(--text-xs) var(--menu-font);
+}
+
+.tab-card-actions svg {
+  width: 15px;
+  height: 15px;
+}
+
+.tab-card-actions button:disabled {
+  color: var(--menu-disabled);
+}
+
+.tab-card-actions button:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
+}
+
+@media (hover: hover) and (pointer: fine) {
+  .tab-card-actions button:hover:not(:disabled) {
+    background: var(--menu-hover);
+  }
 }
 
 @keyframes fav-card-in {
@@ -910,13 +982,33 @@ body[data-address='top'] .address-only {
   filter: brightness(0.9);
 }
 
-.row.loading .favicon {
-  animation: pulse 0.9s ease-in-out infinite alternate;
+.row .spin {
+  display: grid;
+  place-items: center;
+  flex: none;
+  width: 22px;
+  height: 22px;
+  margin-right: -2px;
 }
 
-@keyframes pulse {
-  to {
-    opacity: 0.35;
+.row .spin::before {
+  content: '';
+  width: 12px;
+  height: 12px;
+  border: 1.5px solid color-mix(in srgb, currentColor 22%, transparent);
+  border-top-color: var(--text-2);
+  border-radius: 50%;
+  animation: download-spin 0.8s linear infinite;
+  animation-delay: var(--spin-phase, 0ms);
+}
+
+.row:hover .spin {
+  display: none;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .row .spin::before {
+    animation-duration: 2.4s;
   }
 }
 
@@ -1581,6 +1673,16 @@ footer {
   overflow-y: auto;
 }
 
+/* Nothing to list: only the field floats there (app.ts paletteBare). */
+#palette.bare #palette-results,
+#palette.bare .palette-footer {
+  display: none;
+}
+
+#palette.bare .palette-field {
+  border-bottom: 0;
+}
+
 #palette-results .group-label {
   height: 26px;
   padding: 8px 10px 2px;
@@ -1971,18 +2073,135 @@ footer {
   box-shadow: inset 0 0 0 0.5px rgba(0, 0, 0, 0.12), 0 0 0 2px var(--surface), 0 0 0 3.5px var(--selection);
 }
 
-/* The custom swatch is a rainbow ring around the current colour, with the native picker inside. */
-.swatch.custom {
-  background:
-    radial-gradient(circle, var(--swatch) 52%, transparent 54%),
-    conic-gradient(#f87171, #fbbf24, #34d399, #60a5fa, #a78bfa, #f472b6, #f87171);
-  overflow: hidden;
+/* The colour field (app.ts): hue across, light to dark down; each Space colour is a dot on it. */
+.color-field-wrap {
+  position: relative;
+  margin-top: 10px;
+  border-radius: var(--radius-md);
+  touch-action: none;
 }
 
-.swatch.custom input {
+#space-color-field {
+  display: block;
+  width: 100%;
+  height: 132px;
+  border-radius: var(--radius-md);
+  box-shadow: inset 0 0 0 0.5px rgba(0, 0, 0, 0.12);
+  cursor: crosshair;
+}
+
+.color-dot {
   position: absolute;
-  inset: 0;
-  opacity: 0;
+  width: 18px;
+  height: 18px;
+  margin: -9px 0 0 -9px;
+  border-radius: 50%;
+  background: var(--dot);
+  box-shadow: 0 0 0 2px #fff, 0 1px 4px rgba(0, 0, 0, 0.35);
+  cursor: grab;
+}
+
+.color-dot.selected {
+  width: 22px;
+  height: 22px;
+  margin: -11px 0 0 -11px;
+  box-shadow: 0 0 0 3px #fff, 0 0 0 4.5px var(--selection), 0 1px 4px rgba(0, 0, 0, 0.35);
+}
+
+.color-controls {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-top: 10px;
+}
+
+#space-color-chips {
+  display: flex;
+  gap: 6px;
+}
+
+.color-chip {
+  position: relative;
+  width: 26px;
+  height: 26px;
+  border-radius: 50%;
+  background: var(--swatch);
+  box-shadow: inset 0 0 0 0.5px rgba(0, 0, 0, 0.12);
+}
+
+.color-chip[aria-checked='true'] {
+  box-shadow: inset 0 0 0 0.5px rgba(0, 0, 0, 0.12), 0 0 0 2px var(--surface), 0 0 0 3.5px var(--selection);
+}
+
+/* Removes that colour from the gradient; shown on the selected chip when there are two or more. */
+.color-chip .remove {
+  position: absolute;
+  top: -5px;
+  right: -5px;
+  display: none;
+  place-items: center;
+  width: 15px;
+  height: 15px;
+  border-radius: 50%;
+  background: var(--text);
+  color: var(--surface);
+}
+
+.color-chip .remove svg {
+  width: 9px;
+  height: 9px;
+}
+
+.color-chip[aria-checked='true'] .remove {
+  display: grid;
+}
+
+.color-add {
+  display: grid;
+  place-items: center;
+  width: 26px;
+  height: 26px;
+  border: 1px dashed var(--text-3);
+  border-radius: 50%;
+  color: var(--text-2);
+}
+
+.color-add[hidden] {
+  display: none;
+}
+
+.color-add svg {
+  width: 13px;
+  height: 13px;
+}
+
+.color-hex {
+  display: flex;
+  align-items: center;
+  margin-left: auto;
+  width: 96px;
+  height: 28px;
+  padding: 0 8px;
+  border: 1px solid var(--surface-line);
+  border-radius: var(--radius-sm);
+  background: var(--surface-2);
+  color: var(--text-3);
+  font: 500 var(--text-sm) var(--mono);
+}
+
+.color-hex input {
+  flex: 1;
+  min-width: 0;
+  border: 0;
+  outline: none;
+  background: transparent;
+  color: var(--text);
+  font: inherit;
+  text-transform: lowercase;
+}
+
+.color-hex:focus-within {
+  border-color: var(--selection);
 }
 
 .toggle-row {

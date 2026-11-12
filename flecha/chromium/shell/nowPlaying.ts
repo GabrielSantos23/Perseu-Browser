@@ -2,7 +2,7 @@
  * The sidebar's song card (ui/app.ts renderNowPlaying): what a tab is playing.
  * First the page's own media session (YouTube, Spotify, SoundCloud say the title and artist),
  * through chrome.flechaPrivate.getMedia; its buttons go to mediaAction. When the page names
- * nothing, a few seconds of the tab's sound go to AudD (offscreen.ts), on a click on Identify.
+ * nothing, the tab's sound goes to Shazam (offscreen.ts), on a click on Identify.
  */
 import type { Store } from '../shared/store';
 import type { NowPlaying } from '../shared/types';
@@ -19,7 +19,6 @@ import type { SongAnswer } from './offscreen';
 
 type MediaAction = 'play' | 'pause' | 'next' | 'previous';
 
-const TOKEN_KEY = 'auddToken';
 const TICK_MS = 2000;
 
 /**
@@ -40,11 +39,11 @@ export function registerNowPlaying(ctx: NowPlayingContext) {
   let song: NowPlaying | null = null;
   /** What was playing when the card was closed (keyFor): it comes back for anything else. */
   let dismissed: string | undefined;
-  /** What AudD said, by tab and page, so the same page isn't sent twice. */
+  /** What Shazam said, by tab and page, so the same page isn't sent twice. */
   const recognized = new Map<string, SongAnswer>();
   let identifying: string | undefined;
 
-  /** What was sent to AudD is by tab, page and what is playing: X keeps one address for a whole feed of videos. */
+  /** What was sent to Shazam is by tab, page and what is playing: X keeps one address for a whole feed of videos. */
   const media = new Map<string, string>();
   const keyFor = (tabId: string) => `${tabId} ${store.state.tabs[tabId]?.url ?? ''} ${media.get(tabId) ?? ''}`;
 
@@ -108,7 +107,7 @@ export function registerNowPlaying(ctx: NowPlayingContext) {
       recognized.set(key, null);
     } finally {
       identifying = undefined;
-      void tick();
+      void loop();
     }
   }
 
@@ -122,8 +121,7 @@ export function registerNowPlaying(ctx: NowPlayingContext) {
         justification: 'Records a few seconds of a tab that plays music, to name the song.',
       });
     }
-    const token = (await chrome.storage.local.get(TOKEN_KEY))[TOKEN_KEY] as string | undefined;
-    return chrome.runtime.sendMessage({ perseu: 'identify-song', streamId, token });
+    return chrome.runtime.sendMessage({ perseu: 'identify-song', streamId });
   }
 
   handle({
@@ -135,7 +133,7 @@ export function registerNowPlaying(ctx: NowPlayingContext) {
       const chromeId = ctx.chromeIdFor(String(tabId));
       if (chromeId === undefined || !['play', 'pause', 'next', 'previous'].includes(String(action))) return;
       await chrome.flechaPrivate.mediaAction(chromeId, action as MediaAction).catch(() => undefined);
-      setTimeout(() => void tick(), 300);
+      setTimeout(() => void loop(), 300);
     },
     dismissNowPlaying: () => {
       dismissed = song ? keyFor(song.tabId) : undefined;
@@ -143,5 +141,17 @@ export function registerNowPlaying(ctx: NowPlayingContext) {
     },
   });
 
-  setInterval(() => void tick(), TICK_MS);
+  // Polls only while something plays or the card shows: an idle browser asked Chromium every 2 s.
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  async function loop() {
+    clearTimeout(timer);
+    timer = undefined;
+    await tick().catch(() => undefined);
+    const sounding = (await chrome.tabs.query({ audible: true }).catch(() => [])).length > 0;
+    if (song || sounding) timer ??= setTimeout(() => void loop(), TICK_MS);
+  }
+  chrome.tabs.onUpdated.addListener((_id, change) => {
+    if ('audible' in change && !timer) void loop();
+  });
+  void loop();
 }

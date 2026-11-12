@@ -599,10 +599,10 @@ index 421dc59fd7e9b1198ff2af862f7b87ad1031f05b..29580a5475922127176c3c92ff007dfa
  #if BUILDFLAG(IS_ANDROID)
 diff --git a/chrome/browser/extensions/api/flecha_private/BUILD.gn b/chrome/browser/extensions/api/flecha_private/BUILD.gn
 new file mode 100644
-index 0000000000000000000000000000000000000000..260be41b5ada5bb55d137246f1b11ea383b70c36
+index 0000000000000000000000000000000000000000..b6086b491c2c9ee0ef2f97e75a1fbe8b67deecdd
 --- /dev/null
 +++ b/chrome/browser/extensions/api/flecha_private/BUILD.gn
-@@ -0,0 +1,35 @@
+@@ -0,0 +1,36 @@
 +# Copyright 2026 The Flecha Authors
 +# Use of this source code is governed by a BSD-style license that can be
 +# found in the LICENSE file.
@@ -626,6 +626,7 @@ index 0000000000000000000000000000000000000000..260be41b5ada5bb55d137246f1b11ea3
 +    "//chrome/common/extensions/api",
 +    "//components/content_settings/core/browser",
 +    "//components/content_settings/core/common",
++    "//components/search_engines",
 +    "//chrome/install_static:install_static_util",
 +    "//components/version_info",
 +    "//content/public/browser",
@@ -929,15 +930,19 @@ index 0000000000000000000000000000000000000000..93b4a58ca39e929f7070f16d7eeae64b
 +#endif  // CHROME_BROWSER_EXTENSIONS_API_FLECHA_PRIVATE_FLECHA_BROWSER_IMPORT_H_
 diff --git a/chrome/browser/extensions/api/flecha_private/flecha_private_api.cc b/chrome/browser/extensions/api/flecha_private/flecha_private_api.cc
 new file mode 100644
-index 0000000000000000000000000000000000000000..9e9465b526e484606499f53bf59fc5b66f511c40
+index 0000000000000000000000000000000000000000..479dcae3616824d9009f1ed2d11dfde5b9ea4521
 --- /dev/null
 +++ b/chrome/browser/extensions/api/flecha_private/flecha_private_api.cc
-@@ -0,0 +1,1155 @@
+@@ -0,0 +1,1219 @@
 +// Copyright 2026 The Flecha Authors
 +// Use of this source code is governed by a BSD-style license that can be
 +// found in the LICENSE file.
 +
 +#include "chrome/browser/extensions/api/flecha_private/flecha_private_api.h"
++#include "chrome/browser/search_engines/template_url_service_factory.h"
++#include "components/search_engines/template_url.h"
++#include "components/search_engines/template_url_data.h"
++#include "components/search_engines/template_url_service.h"
 +
 +#include "base/files/file_path.h"
 +#include "base/files/file_util.h"
@@ -1104,6 +1109,18 @@ index 0000000000000000000000000000000000000000..9e9465b526e484606499f53bf59fc5b6
 +    return RespondNow(Error(kBadColorError));
 +  }
 +  state.background = *background;
++  if (params->state.gradient) {
++    for (const std::string& text : *params->state.gradient) {
++      std::optional<SkColor> color = ParseColor(text);
++      if (!color) {
++        return RespondNow(Error(kBadColorError));
++      }
++      state.gradient.push_back(*color);
++    }
++    if (state.gradient.size() < 2 || state.gradient.size() > 3) {
++      state.gradient.clear();
++    }
++  }
 +  if (params->state.top_bar) {
 +    state.top_bar = std::clamp(*params->state.top_bar, -1, 96);
 +  }
@@ -2075,6 +2092,54 @@ index 0000000000000000000000000000000000000000..9e9465b526e484606499f53bf59fc5b6
 +}
 +
 +ExtensionFunction::ResponseAction
++FlechaPrivateSetDefaultSearchEngineFunction::Run() {
++  auto params = flecha_private::SetDefaultSearchEngine::Params::Create(args());
++  EXTENSION_FUNCTION_VALIDATE(params);
++  const GURL example(params->url);
++  if (!example.SchemeIs(url::kHttpsScheme) ||
++      params->url.find("%s") == std::string::npos || params->name.empty()) {
++    return RespondNow(Error("Expected a name and an https URL with %s"));
++  }
++  TemplateURLService* service = TemplateURLServiceFactory::GetForProfile(
++      Profile::FromBrowserContext(browser_context())->GetOriginalProfile());
++  if (!service) {
++    return RespondNow(Error("No search engines in this profile"));
++  }
++  if (!service->loaded()) {
++    service->Load();
++    return RespondNow(Error("Search engines aren't loaded yet"));
++  }
++  // An engine on the same host (Chromium's own Google, Bing…) keeps its
++  // suggestions and icon.
++  TemplateURL* chosen = nullptr;
++  for (TemplateURL* engine : service->GetTemplateURLs()) {
++    const GURL search(engine->url_ref().ReplaceSearchTerms(
++        TemplateURLRef::SearchTermsArgs(u"perseu"),
++        service->search_terms_data()));
++    if (search.host() == example.host() && service->CanMakeDefault(engine)) {
++      chosen = engine;
++      break;
++    }
++  }
++  if (!chosen) {
++    std::string url = params->url;
++    base::ReplaceFirstSubstringAfterOffset(&url, 0, "%s", "{searchTerms}");
++    TemplateURLData data;
++    data.SetShortName(base::UTF8ToUTF16(params->name));
++    data.SetKeyword(base::UTF8ToUTF16(example.host()));
++    data.SetURL(url);
++    chosen = service->Add(std::make_unique<TemplateURL>(data));
++  }
++  if (!chosen || !service->CanMakeDefault(chosen)) {
++    return RespondNow(Error("Chromium won't take that search engine"));
++  }
++  if (service->GetDefaultSearchProvider() != chosen) {
++    service->SetUserSelectedDefaultSearchProvider(chosen);
++  }
++  return RespondNow(NoArguments());
++}
++
++ExtensionFunction::ResponseAction
 +FlechaPrivateRunInRegularProfileFunction::Run() {
 +  auto params = flecha_private::RunInRegularProfile::Params::Create(args());
 +  EXTENSION_FUNCTION_VALIDATE(params);
@@ -2090,10 +2155,10 @@ index 0000000000000000000000000000000000000000..9e9465b526e484606499f53bf59fc5b6
 +}  // namespace extensions
 diff --git a/chrome/browser/extensions/api/flecha_private/flecha_private_api.h b/chrome/browser/extensions/api/flecha_private/flecha_private_api.h
 new file mode 100644
-index 0000000000000000000000000000000000000000..c81a2c1f8e6616874bdd1f5c14786634d171e3c2
+index 0000000000000000000000000000000000000000..3d753ea53f983ccff6633c538da887dbfb05fae6
 --- /dev/null
 +++ b/chrome/browser/extensions/api/flecha_private/flecha_private_api.h
-@@ -0,0 +1,384 @@
+@@ -0,0 +1,393 @@
 +// Copyright 2026 The Flecha Authors
 +// Use of this source code is governed by a BSD-style license that can be
 +// found in the LICENSE file.
@@ -2466,6 +2531,15 @@ index 0000000000000000000000000000000000000000..c81a2c1f8e6616874bdd1f5c14786634
 +  int pending_ = 0;
 +};
 +
++class FlechaPrivateSetDefaultSearchEngineFunction : public ExtensionFunction {
++ public:
++  DECLARE_EXTENSION_FUNCTION("flechaPrivate.setDefaultSearchEngine", UNKNOWN)
++
++ protected:
++  ~FlechaPrivateSetDefaultSearchEngineFunction() override = default;
++  ResponseAction Run() override;
++};
++
 +class FlechaPrivateRunInRegularProfileFunction : public ExtensionFunction {
 + public:
 +  DECLARE_EXTENSION_FUNCTION("flechaPrivate.runInRegularProfile", UNKNOWN)
@@ -2512,6 +2586,33 @@ index 0d3b1b7f11bcee5e22303d4c65f6b202ffafda2c..cdc08389cfe651cfc566e918d9de5809
      return RespondNow(Error(tab_capture_errors::kGrantError));
    }
  
+diff --git a/chrome/browser/extensions/browser_extension_window_controller.cc b/chrome/browser/extensions/browser_extension_window_controller.cc
+index 28cb433a08f865b05ddb8967747e61886911f7c8..9fbf159f2b558cef60afe2f2f57a3423dd629b31 100644
+--- a/chrome/browser/extensions/browser_extension_window_controller.cc
++++ b/chrome/browser/extensions/browser_extension_window_controller.cc
+@@ -85,6 +85,12 @@ api::tabs::WindowType GetTabsWindowType(const BrowserWindowInterface* browser) {
+     case BrowserWindowInterface::TYPE_APP_POPUP:
+     case BrowserWindowInterface::TYPE_POPUP:
+       return api::tabs::WindowType::kPopup;
++#if !BUILDFLAG(IS_ANDROID)
++    // Flecha: a Document Picture-in-Picture window is a popup
++    // (crbug.com/438514981), so the shell leaves its tab out of the sidebar.
++    case BrowserWindowInterface::TYPE_PICTURE_IN_PICTURE:
++      return api::tabs::WindowType::kPopup;
++#endif
+ #if BUILDFLAG(IS_ANDROID)
+     case BrowserWindowInterface::TYPE_CUSTOM_TAB:
+       return api::tabs::WindowType::kCustomTab;
+@@ -100,9 +106,6 @@ api::tabs::WindowType GetTabsWindowType(const BrowserWindowInterface* browser) {
+     // closer to a popup, and custom tabs might be app-like (if they can even
+     // reach this point).
+     case BrowserWindowInterface::TYPE_NORMAL:
+-#if !BUILDFLAG(IS_ANDROID)
+-    case BrowserWindowInterface::TYPE_PICTURE_IN_PICTURE:
+-#endif
+       return api::tabs::WindowType::kNormal;
+   }
+ }
 diff --git a/chrome/browser/extensions/component_extensions_allowlist/allowlist.cc b/chrome/browser/extensions/component_extensions_allowlist/allowlist.cc
 index b0314569d1558b3e4f565f7d7bdc24777d798583..9955c124e47348ea70ce528fb49a751678bbd23b 100644
 --- a/chrome/browser/extensions/component_extensions_allowlist/allowlist.cc
@@ -3068,10 +3169,10 @@ index 0000000000000000000000000000000000000000..1ac65e45e00ddeb309f4fcac76fdf8c0
 +}
 diff --git a/chrome/browser/flecha/flecha_frame_host.h b/chrome/browser/flecha/flecha_frame_host.h
 new file mode 100644
-index 0000000000000000000000000000000000000000..97083f4ec69d99fb1f1f5114bff7bde646d5666a
+index 0000000000000000000000000000000000000000..56877b6bff03452ed117a4ae9872015cc125108c
 --- /dev/null
 +++ b/chrome/browser/flecha/flecha_frame_host.h
-@@ -0,0 +1,296 @@
+@@ -0,0 +1,298 @@
 +// Copyright 2026 The Flecha Authors
 +// Use of this source code is governed by a BSD-style license that can be
 +// found in the LICENSE file.
@@ -3165,6 +3266,8 @@ index 0000000000000000000000000000000000000000..97083f4ec69d99fb1f1f5114bff7bde6
 +  Sidebar sidebar = Sidebar::kDocked;
 +  bool overlay = false;
 +  SkColor background = SkColorSetRGB(0xe9, 0xec, 0xf2);
++  // Two or three colours, top to bottom, painted instead of `background`.
++  std::vector<SkColor> gradient;
 +  // A Flechinha window: the browser sets this, never setFrame().
 +  bool flechinha = false;
 +  // The window is in fullscreen: the browser sets this, never setFrame().
@@ -3998,7 +4101,7 @@ index 176ef608d7f203e5495b97d2e7272908e9f9128b..09fbe5ff338551357dee924ad4e6d61d
          break;
        }
 diff --git a/chrome/browser/ui/browser_web_contents_delegate/browser_web_contents_delegate.cc b/chrome/browser/ui/browser_web_contents_delegate/browser_web_contents_delegate.cc
-index 2e02cc461e5048073b61064061e8a5b5260afb75..66bf00cdfcfe0fc181aa42dc8e9ec2b5a19826b2 100644
+index 2e02cc461e5048073b61064061e8a5b5260afb75..5f4663e0c796d8652fba91b1d984224b8dd38947 100644
 --- a/chrome/browser/ui/browser_web_contents_delegate/browser_web_contents_delegate.cc
 +++ b/chrome/browser/ui/browser_web_contents_delegate/browser_web_contents_delegate.cc
 @@ -18,6 +18,8 @@
@@ -4097,6 +4200,17 @@ index 2e02cc461e5048073b61064061e8a5b5260afb75..66bf00cdfcfe0fc181aa42dc8e9ec2b5
    return chrome::AddWebContents(&*browser_, source, std::move(new_contents),
                                  target_url, disposition, window_features,
                                  window_action, user_gesture);
+@@ -873,6 +941,10 @@ bool BrowserWebContentsDelegate::ShouldFocusLocationBarByDefault(
+   if (source != browser_->GetTabStripModel()->GetActiveWebContents()) {
+     return false;
+   }
++  // Flecha: no omnibox to focus; the new tab page focuses its own field.
++  if (FlechaFrameHost::ForWindow(browser_->GetSessionID().id())) {
++    return false;
++  }
+ 
+   // This should be based on the pending entry if there is one, so that
+   // back/forward navigations to the NTP are handled.  The visible entry can't
 diff --git a/chrome/browser/ui/browser_window/internal/browser_window_features.cc b/chrome/browser/ui/browser_window/internal/browser_window_features.cc
 index 6c1c78d4341e72f815fed35a8a808e60333876ac..b864c565639aab518c737fd2007fefb84630c4ee 100644
 --- a/chrome/browser/ui/browser_window/internal/browser_window_features.cc
@@ -4273,6 +4387,21 @@ index 1e98a3d7cba4e7913cb67741a36d19c8ce493885..9e04515da0404443994e7a3d8b24abb6
  
    WebContents::CreateParams create_params(
        params.browser->GetProfile(), initial_site_instance_for_new_contents);
+diff --git a/chrome/browser/ui/omnibox/omnibox_next_features.cc b/chrome/browser/ui/omnibox/omnibox_next_features.cc
+index 13225c5b843b3e09b3ecb053db4576b0339f39a8..881d2c1b9e718b6ef025c2fc3d7fe6b45b5ed360 100644
+--- a/chrome/browser/ui/omnibox/omnibox_next_features.cc
++++ b/chrome/browser/ui/omnibox/omnibox_next_features.cc
+@@ -46,7 +46,9 @@ namespace omnibox {
+ namespace internal {
+ 
+ // If enabled, shows the omnibox suggestions in the popup in WebUI.
+-BASE_FEATURE(kWebUIOmniboxPopup, ENABLED);
++// Perseu: off. Its windows search in their own command bar, and the WebUI popup kept a renderer
++// (about 16 MB) preloaded for each window anyway.
++BASE_FEATURE(kWebUIOmniboxPopup, DISABLED);
+ 
+ // If enabled, Omnibox popup will transition to AI-Mode with the compose-box
+ // panel taking up the whole of the popup, covering the location bar completely.
 diff --git a/chrome/browser/ui/side_panel/side_panel_prefs.cc b/chrome/browser/ui/side_panel/side_panel_prefs.cc
 index 003dc2043bb9d6a59087d06873a3dda95ff12e5a..7c43b7e67ca2b70621c008f207a2fc078758d926 100644
 --- a/chrome/browser/ui/side_panel/side_panel_prefs.cc
@@ -4375,7 +4504,7 @@ index 07ff3566c110c9a29950070f9f773d00d70fbeea..b7dc20625d8ab050f523187b187b3b46
      ":browser_view_layout_delegate_impl",
      ":browser_widget",
 diff --git a/chrome/browser/ui/views/frame/browser_frame_view_win.cc b/chrome/browser/ui/views/frame/browser_frame_view_win.cc
-index 1928290402cc1b3d3bbddb8398c137df1ec04978..0f1fd830bd73216df724b725ca7b963674e73a67 100644
+index 1928290402cc1b3d3bbddb8398c137df1ec04978..8dc6d8448a1f99a2d382accb307d68e22cc7d66d 100644
 --- a/chrome/browser/ui/views/frame/browser_frame_view_win.cc
 +++ b/chrome/browser/ui/views/frame/browser_frame_view_win.cc
 @@ -10,7 +10,7 @@
@@ -4454,7 +4583,7 @@ index 1928290402cc1b3d3bbddb8398c137df1ec04978..0f1fd830bd73216df724b725ca7b9636
      LayoutTitleBar();
    }
    LayoutClientView();
-@@ -728,22 +759,44 @@ void BrowserFrameViewWin::LayoutTitleBar() {
+@@ -728,22 +759,46 @@ void BrowserFrameViewWin::LayoutTitleBar() {
  void BrowserFrameViewWin::LayoutCaptionButtons() {
    TRACE_EVENT0("views.frame", "BrowserFrameViewWin::LayoutCaptionButtons");
  
@@ -4482,7 +4611,9 @@ index 1928290402cc1b3d3bbddb8398c137df1ec04978..0f1fd830bd73216df724b725ca7b9636
            : GetFrameHeight();
  
 +  if (FlechaFrameView* flecha = GetActiveFlechaFrame()) {
-+    caption_button_container_->SetVisible(!flecha->welcome());
++    // None in fullscreen either, as Chrome does.
++    caption_button_container_->SetVisible(!flecha->welcome() &&
++                                          !browser_widget()->IsFullscreen());
 +  }
 +  if (FlechaFrameView* flecha_frame = GetActiveFlechaFrame()) {
 +    // Over the top bar, which is under the browser view's layer: paint to a
@@ -4506,7 +4637,7 @@ index 1928290402cc1b3d3bbddb8398c137df1ec04978..0f1fd830bd73216df724b725ca7b9636
    caption_button_container_->SetBounds(width() - preferred_size.width(),
                                         WindowTopY(), preferred_size.width(),
                                         height);
-@@ -752,7 +805,8 @@ void BrowserFrameViewWin::LayoutCaptionButtons() {
+@@ -752,7 +807,8 @@ void BrowserFrameViewWin::LayoutCaptionButtons() {
  void BrowserFrameViewWin::LayoutClientView() {
    client_view_bounds_ = GetLocalBounds();
    int top_inset = GetTopInset(false);
@@ -4673,10 +4804,10 @@ index 928a723e2e2275985432ffdf32c8e2063d9477d4..a434ae7bdb68451a5ef5a220580dc91e
        std::move(layout_views)));
 diff --git a/chrome/browser/ui/views/frame/flecha_frame_view.cc b/chrome/browser/ui/views/frame/flecha_frame_view.cc
 new file mode 100644
-index 0000000000000000000000000000000000000000..e5167e02e8a8347238e566a3262cfc40895efa9c
+index 0000000000000000000000000000000000000000..87a99d6a971397ebdc0265772d8b89143cfac767
 --- /dev/null
 +++ b/chrome/browser/ui/views/frame/flecha_frame_view.cc
-@@ -0,0 +1,889 @@
+@@ -0,0 +1,904 @@
 +// Copyright 2026 The Flecha Authors
 +// Use of this source code is governed by a BSD-style license that can be
 +// found in the LICENSE file.
@@ -4788,7 +4919,22 @@ index 0000000000000000000000000000000000000000..e5167e02e8a8347238e566a3262cfc40
 +      : state_(state) {}
 +
 +  void Paint(gfx::Canvas* canvas, views::View* view) const override {
-+    canvas->DrawColor(state_.background);
++    if (state_.gradient.size() > 1) {
++      // The same fade as the sidebar's CSS: top to bottom over the window.
++      const SkPoint points[] = {SkPoint::Make(0, 0),
++                                SkPoint::Make(0, view->height())};
++      std::vector<SkColor4f> colors;
++      for (SkColor color : state_.gradient) {
++        colors.push_back(SkColor4f::FromColor(color));
++      }
++      cc::PaintFlags fill;
++      fill.setShader(cc::PaintShader::MakeLinearGradient(
++          points, colors.data(), nullptr, static_cast<int>(colors.size()),
++          SkTileMode::kClamp));
++      canvas->DrawRect(view->GetLocalBounds(), fill);
++    } else {
++      canvas->DrawColor(state_.background);
++    }
 +    canvas->TileImageInt(FrameGrain(), 0, 0, view->width(), view->height());
 +    gfx::Rect page = view->GetLocalBounds();
 +    page.Inset(view->GetInsets());
@@ -6520,10 +6666,10 @@ index acdc60b6758544aabf434ead3a754b9b1c74e4c3..6bfabf0b4b1e9242302b7ef95d8e0751
      "language_settings_private.webidl",
 diff --git a/chrome/common/extensions/api/flecha_private.idl b/chrome/common/extensions/api/flecha_private.idl
 new file mode 100644
-index 0000000000000000000000000000000000000000..f4d99d50e70081a7cd0959bfeb7faf80ac47f3c2
+index 0000000000000000000000000000000000000000..c9150ac4a5c831e555562ea3281b3e2b59d5359c
 --- /dev/null
 +++ b/chrome/common/extensions/api/flecha_private.idl
-@@ -0,0 +1,340 @@
+@@ -0,0 +1,352 @@
 +// Copyright 2026 The Flecha Authors
 +// Use of this source code is governed by a BSD-style license that can be
 +// found in the LICENSE file.
@@ -6574,6 +6720,9 @@ index 0000000000000000000000000000000000000000..f4d99d50e70081a7cd0959bfeb7faf80
 +    boolean overlay;
 +    // The window's colour behind the page area, as #rrggbb.
 +    DOMString background;
++    // A gradient Space: two or three #rrggbb colours the window fades
++    // between, top to bottom, instead of `background`.
++    DOMString[]? gradient;
 +    // The bar on top of the page area (window.html?kind=topbar), this tall in
 +    // DIPs; 0 or absent for none. On Windows the window buttons sit at its
 +    // right end.
@@ -6846,6 +6995,15 @@ index 0000000000000000000000000000000000000000..f4d99d50e70081a7cd0959bfeb7faf80
 +    // storage and cache.
 +    static void clearPartition(
 +        DOMString partition,
++        optional DoneCallback callback);
++
++    // Makes the shell's search engine Chromium's default too, for the page
++    // menu's "Search for...": its name and its https URL with %s for the terms.
++    // An engine Chromium already knows on that host is kept (with its
++    // suggestions); otherwise one is added.
++    static void setDefaultSearchEngine(
++        DOMString name,
++        DOMString url,
 +        optional DoneCallback callback);
 +  };
 +
@@ -7291,6 +7449,24 @@ index aa25995e601db4ae3bfb79b58a078306bb676c65..66d3682e233f44736f01d5c68d340be4
      } else {
        site_instance = SiteInstance::Create(GetBrowserContext());
      }
+diff --git a/extensions/browser/api/management/management_api.cc b/extensions/browser/api/management/management_api.cc
+index ef9c8e58e1589fb7924cb8a29501aa0a63688c8a..f8c3bb51ca96e43b606c2344a2715b4ecd77d2d4 100644
+--- a/extensions/browser/api/management/management_api.cc
++++ b/extensions/browser/api/management/management_api.cc
+@@ -86,6 +86,13 @@ AutoConfirmForTest auto_confirm_for_test = AutoConfirmForTest::kDoNotSkip;
+ // Returns true if the extension should be exposed via the chrome.management
+ // API.
+ bool ShouldExposeViaManagementAPI(const Extension& extension) {
++  // Flecha: the extensions that come with Perseu (chromium/extensions/fetch.mjs)
++  // load as component extensions, but they are listed with the others.
++  // shortcut: one id per bundled extension; derive them from the folder when
++  // there are more than a couple.
++  if (extension.id() == "hondaflceahejakmcphhbjmjlacadinj") {  // uBlock Origin
++    return true;
++  }
+   return !Manifest::IsComponentLocation(extension.location());
+ }
+ 
 diff --git a/extensions/browser/updater/extension_downloader.cc b/extensions/browser/updater/extension_downloader.cc
 index 3ab7bc1c8f69ed0d21a6a3c1c3d71fb943b0e097..b68a07bc97f6e3ab96e02aa73aea4ff4334a30b3 100644
 --- a/extensions/browser/updater/extension_downloader.cc

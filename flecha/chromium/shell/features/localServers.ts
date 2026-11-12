@@ -4,7 +4,8 @@
  * default and keeps the ones that answer HTTP. Each is named after its page's <title>
  * (Electron used the project folder, which only lsof knows), or `localhost:port`.
  *
- * Every few seconds while a Flecha window is in front, rarely otherwise, as in Electron.
+ * Whenever a Flecha window comes to the front, then every 30 s while it stays there, rarely
+ * otherwise: knocking on ~45 ports every few seconds kept the browser busy while idle.
  */
 import type { LocalServer } from '../../shared/types';
 
@@ -14,8 +15,8 @@ export const DEV_PORTS = [
   5176, 5500, 6006, 7000, 7777, 8000, 8001, 8008, 8010, 8080, 8081, 8082, 8088, 8443, 8787, 8888, 9000, 9001, 9090, 19006, 24678,
 ];
 
-const FOCUSED_EVERY_MS = 4000;
-const BACKGROUND_EVERY_MS = 30000;
+const FOCUSED_EVERY_MS = 30000;
+const BACKGROUND_EVERY_MS = 120000;
 
 async function probe(port: number): Promise<{ ok: boolean; airplay?: boolean }> {
   try {
@@ -73,21 +74,21 @@ export function watchLocalServers(onChange: (servers: LocalServer[]) => void) {
     }
   }
 
+  let timer: ReturnType<typeof setTimeout> | undefined;
   async function tick() {
-    const due = focused ? FOCUSED_EVERY_MS : BACKGROUND_EVERY_MS;
-    if (Date.now() - last >= due) {
-      last = Date.now();
-      await scan().catch((err) => console.warn('Flecha: looking for local servers failed', err));
-    }
-    setTimeout(tick, 2000);
+    clearTimeout(timer);
+    last = Date.now();
+    await scan().catch((err) => console.warn('Flecha: looking for local servers failed', err));
+    clearTimeout(timer); // A scan on focus may have overlapped this one: keep a single chain.
+    timer = setTimeout(tick, focused ? FOCUSED_EVERY_MS : BACKGROUND_EVERY_MS);
   }
 
   // Flecha's windows are the only ones this browser has, so any focused window is Flecha's.
   chrome.windows.onFocusChanged.addListener((windowId) => {
     const was = focused;
     focused = windowId !== chrome.windows.WINDOW_ID_NONE;
-    // Coming back to Flecha: look again on the next tick.
-    if (focused && !was) last = 0;
+    // Coming back to Flecha (say, from the terminal that started a server): look now.
+    if (focused && !was && Date.now() - last > 1000) void tick();
   });
   void chrome.windows.getLastFocused().then(
     (w) => (focused = !!w.focused),

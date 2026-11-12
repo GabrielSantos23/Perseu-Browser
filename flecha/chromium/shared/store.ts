@@ -55,7 +55,10 @@ export class Store {
     const space = this.activeSpace;
     const after = opts.afterTabId ? space.today.indexOf(opts.afterTabId) : -1;
     space.today.splice(after + 1, 0, tab.id);
-    if (opts.activate !== false) space.activeTabId = tab.id;
+    if (opts.activate !== false) {
+      space.activeTabId = tab.id;
+      tab.lastSelected = Date.now();
+    }
     this.changed();
     return tab;
   }
@@ -66,7 +69,7 @@ export class Store {
     const loc = this.locate(tabId);
     if (loc?.space) this.state.activeSpaceId = loc.space.id;
     this.activeSpace.activeTabId = tabId;
-    tab.lastActive = Date.now();
+    tab.lastActive = tab.lastSelected = Date.now();
     this.changed();
   }
 
@@ -102,7 +105,12 @@ export class Store {
     this.archive(tab, true);
     delete this.state.tabs[tabId];
     if (space.activeTabId === tabId) {
-      space.activeTabId = space.today[Math.min(index, space.today.length - 1)];
+      // The tab selected before this one; without any, the neighbour.
+      const before = this.allTabIds(space)
+        .map((id) => this.state.tabs[id])
+        .filter((t) => t?.lastSelected)
+        .sort((a, b) => b.lastSelected! - a.lastSelected!)[0];
+      space.activeTabId = before?.id ?? space.today[Math.min(index, space.today.length - 1)];
     }
     this.changed();
     return 'removed';
@@ -193,7 +201,7 @@ export class Store {
     space.split = side === 'left' ? [tabId, current] : [current, tabId];
     delete space.splitMode;
     space.activeTabId = tabId;
-    this.state.tabs[tabId].lastActive = Date.now();
+    this.state.tabs[tabId].lastActive = this.state.tabs[tabId].lastSelected = Date.now();
     this.changed();
   }
 
@@ -359,13 +367,25 @@ export class Store {
   }
 
   /** Name, emoji and colour. Invalid values are ignored rather than stored. */
-  updateSpace(spaceId: string, patch: { name?: string; emoji?: string; color?: string; pinnedExtensions?: string[] }) {
+  updateSpace(spaceId: string, patch: { name?: string; emoji?: string; color?: string; colors?: string[]; pinnedExtensions?: string[] }) {
     const space = this.state.spaces.find((s) => s.id === spaceId);
     if (!space) return;
     const name = typeof patch.name === 'string' ? patch.name.trim().slice(0, 40) : '';
     if (name) space.name = name;
     if (typeof patch.emoji === 'string') space.emoji = [...patch.emoji.trim()].slice(0, 2).join('') || undefined;
-    if (typeof patch.color === 'string' && (patch.color === 'default' || /^#[0-9a-f]{6}$/i.test(patch.color))) space.color = patch.color.toLowerCase();
+    if (typeof patch.color === 'string' && (patch.color === 'default' || /^#[0-9a-f]{6}$/i.test(patch.color))) {
+      space.color = patch.color.toLowerCase();
+      delete space.colors;
+    }
+    // A gradient: up to three colours, the first one is the Space's colour.
+    if (Array.isArray(patch.colors)) {
+      const colors = patch.colors.filter((c) => typeof c === 'string' && /^#[0-9a-f]{6}$/i.test(c)).slice(0, 3).map((c) => c.toLowerCase());
+      if (colors.length) {
+        space.color = colors[0];
+        if (colors.length > 1) space.colors = colors;
+        else delete space.colors;
+      }
+    }
     if (Array.isArray(patch.pinnedExtensions)) {
       // Extension ids are 32 letters a–p; anything else is dropped.
       const ids = [...new Set(patch.pinnedExtensions.filter((id) => typeof id === 'string' && /^[a-p]{32}$/.test(id)))];
@@ -485,10 +505,11 @@ export class Store {
     this.changed();
   }
 
-  setPreferences(prefs: { theme?: 'system' | 'light' | 'dark'; peekPinnedLinks?: boolean; addressInSidebar?: boolean }) {
+  setPreferences(prefs: { theme?: 'system' | 'light' | 'dark'; peekPinnedLinks?: boolean; addressInSidebar?: boolean; commandBar?: boolean }) {
     if (prefs.theme && ['system', 'light', 'dark'].includes(prefs.theme)) this.state.theme = prefs.theme;
     if (typeof prefs.peekPinnedLinks === 'boolean') this.state.peekPinnedLinks = prefs.peekPinnedLinks;
     if (typeof prefs.addressInSidebar === 'boolean') this.state.addressInSidebar = prefs.addressInSidebar;
+    if (typeof prefs.commandBar === 'boolean') this.state.commandBar = prefs.commandBar;
     this.changed();
   }
 

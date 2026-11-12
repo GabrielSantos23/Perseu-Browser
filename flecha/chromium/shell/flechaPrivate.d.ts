@@ -27,6 +27,8 @@ declare namespace chrome.flechaPrivate {
     overlay: boolean;
     /** The window's colour behind the page area (the Space tint), as #rrggbb. */
     background: string;
+    /** Two or three colours (#rrggbb) the window fades between, top to bottom, instead of `background`. */
+    gradient?: string[];
     /** The bar on top of the page area (window.html?kind=topbar), this tall; 0 or absent for none. On Windows the window buttons sit at its right end. */
     topBar?: number;
     /** The top bar's text colour as #rrggbb, for the window buttons' symbols. */
@@ -177,6 +179,8 @@ declare namespace chrome.flechaPrivate {
   function createTab(options: CreateTabOptions): Promise<number>;
   function getTabPartition(tabId: number): Promise<string>;
   function clearPartition(partition: string): Promise<void>;
+  /** Chromium's default search engine (the page menu's "Search for…"): a name and an https URL with %s. */
+  function setDefaultSearchEngine(name: string, url: string): Promise<void>;
 
   /**
    * Peek (patch 0026), like the spike's openPeek(): a page in a floating card over the page

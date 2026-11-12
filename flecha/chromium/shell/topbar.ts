@@ -109,7 +109,30 @@ $('app-menu').onclick = () => {
 };
 $('back').onclick = () => api.back();
 $('forward').onclick = () => api.forward();
-$('reload').onclick = () => (state?.nav.loading ? api.stop() : api.reload());
+$('reload').onclick = () => {
+  if (Date.now() - reloadHeldAt < 400) return;
+  if (state?.nav.loading) api.stop();
+  else api.reload();
+};
+// Pressed and held (or right-clicked), Reload offers a hard reload and emptying the cache, as in Chrome.
+let reloadHold: number | undefined;
+let reloadHeldAt = 0;
+function openReloadMenu() {
+  reloadHeldAt = Date.now();
+  const box = $('reload').getBoundingClientRect();
+  const left = (state?.sidebarMode === 'docked' ? 260 : 8) + box.left;
+  cmd('openAppMenu')(new URLSearchParams(location.search).get('window'), { right: left + 220, top: 8 + box.bottom + 4 }, 'reloadMenu');
+}
+$('reload').addEventListener('pointerdown', (e) => {
+  if (e.button !== 0) return;
+  clearTimeout(reloadHold);
+  reloadHold = window.setTimeout(openReloadMenu, 450);
+});
+for (const type of ['pointerup', 'pointerleave', 'pointercancel']) $('reload').addEventListener(type, () => clearTimeout(reloadHold));
+$('reload').addEventListener('contextmenu', (e) => {
+  e.preventDefault();
+  openReloadMenu();
+});
 $('copy').onclick = () => cmd('copyActiveLink')();
 $('zoom').onclick = () => cmd('zoom')(0);
 // The window page has the command bar; it opens over the window.

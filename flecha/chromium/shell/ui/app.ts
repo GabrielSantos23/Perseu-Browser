@@ -151,6 +151,9 @@ function render(s: UiState) {
   const space = s.spaces.find((sp) => sp.id === s.activeSpaceId) ?? s.spaces[0];
   const active = space.activeTabId ? s.tabs[space.activeTabId] : undefined;
   document.documentElement.style.setProperty('--space-color', s.tint);
+  // A gradient Space fades top to bottom, as the window's frame around the page does.
+  if (s.tints && s.tints.length > 1) document.documentElement.style.setProperty('--space-gradient', `linear-gradient(to bottom, ${s.tints.join(', ')})`);
+  else document.documentElement.style.removeProperty('--space-gradient');
   // The sidebar's text follows its own colour, which can be any colour, not the theme.
   $('sidebar').dataset.ink = isDark(s.tint) ? 'light' : 'dark';
   $('sidebar').toggleAttribute('data-bright', luminance(s.tint) > 0.85);
@@ -235,6 +238,7 @@ function render(s: UiState) {
   // Rebuilding resets the scroll; only a change of Space moves it, to show the active one.
   spacesStrip.scrollLeft = spacesScroll;
   if (space.id !== lastStripSpace) spacesStrip.querySelector('.active')?.scrollIntoView({ block: 'nearest', inline: 'nearest' });
+  if (lastStripSpace && space.id !== lastStripSpace) slideSpace(s.spaces.findIndex((sp) => sp.id === space.id) > s.spaces.findIndex((sp) => sp.id === lastStripSpace) ? 1 : -1);
   lastStripSpace = space.id;
 
   if (!palette.hidden) updatePalette();
@@ -242,6 +246,18 @@ function render(s: UiState) {
   renderExtensions();
   if (!spaceEditor.hidden) renderSpaceEditor();
   if (!sitePanel.hidden) renderSitePanel();
+}
+
+/** A new Space's tabs slide in from the side of its dot in the strip (1: from the right). */
+function slideSpace(direction: 1 | -1) {
+  if (matchMedia('(prefers-reduced-motion: reduce)').matches) return;
+  document.querySelector('.sidebar-main')?.animate(
+    [
+      { transform: `translateX(${direction * 36}px)`, opacity: 0 },
+      { transform: 'none', opacity: 1 },
+    ],
+    { duration: 240, easing: 'cubic-bezier(0.2, 0.8, 0.2, 1)' },
+  );
 }
 
 /** The home screen of an empty Space (and of a new tab): the input, nothing else. */
@@ -483,6 +499,9 @@ function tabRow(tab: TabInfo, space: Space, target: DropTarget) {
       ? h('span', { class: 'device-badge', title: 'Phone-sized mirror' }, icon('phone'))
       : h('span', { class: 'split-badge', title: 'In split view' }, icon('columns')),
     target.zone === 'pinned' ? h('span', { class: 'pin-mark', 'aria-label': 'Pinned' }, icon('lock')) : null,
+    // Where the close button is, while the page loads; hovering brings the button back.
+    // The delay keeps the spin in phase when the sidebar redraws the row.
+    tab.loading ? h('span', { class: 'spin', role: 'img', 'aria-label': 'Loading', style: `--spin-phase: -${Date.now() % 800}ms` }) : null,
     close,
   );
   wireTab(row, tab, target);
@@ -908,32 +927,173 @@ function closeSpaceEditor() {
   if (framedWindow) api.setOverlay?.('space-menu', false);
 }
 
-/**
- * Built once and only updated: each colour dragged in the picker re-renders the editor, and
- * replacing its <input type=color> would close the picker under the mouse.
- */
-const colorInput = h('input', { type: 'color', title: 'Custom colour' }) as HTMLInputElement;
-const customSwatch = h('label', { class: 'swatch custom', title: 'Custom colour' }, colorInput) as HTMLElement;
+// ---- Space colours: presets, a field with up to three dots (a gradient), and the exact hex ----
+
+/** Which of the Space's colours the presets, the field and the hex field change. */
+let colorIndex = 0;
+const colorField = $<HTMLCanvasElement>('space-color-field');
+const colorHex = $<HTMLInputElement>('space-color-hex');
+
+/** The field: hue across, from light pastel at the top to deep at the bottom. */
+const fieldColor = (x: number, y: number) => hslHex(x * 360, 0.72, 0.93 - y * 0.66);
+const fieldPoint = (hex: string) => {
+  const [hue, , l] = hexHsl(hex);
+  return { x: hue / 360, y: Math.min(1, Math.max(0, (0.93 - l) / 0.66)) };
+};
+
+function hslHex(hue: number, s: number, l: number) {
+  const k = (n: number) => (n + hue / 30) % 12;
+  const a = s * Math.min(l, 1 - l);
+  const f = (n: number) => Math.round(255 * (l - a * Math.max(-1, Math.min(k(n) - 3, 9 - k(n), 1))));
+  return '#' + [f(0), f(8), f(4)].map((c) => c.toString(16).padStart(2, '0')).join('');
+}
+
+function hexHsl(hex: string): [number, number, number] {
+  const [r, g, b] = [1, 3, 5].map((i) => parseInt(hex.slice(i, i + 2), 16) / 255);
+  const max = Math.max(r, g, b);
+  const min = Math.min(r, g, b);
+  const l = (max + min) / 2;
+  const d = max - min;
+  if (!d) return [0, 0, l];
+  const s = d / (1 - Math.abs(2 * l - 1));
+  const hue = max === r ? ((g - b) / d) % 6 : max === g ? (b - r) / d + 2 : (r - g) / d + 4;
+  return [(hue * 60 + 360) % 360, s, l];
+}
+
+// Drawn once, pixel by pixel, from the same formula the dots use.
+{
+  const ctx = colorField.getContext('2d')!;
+  const { width, height } = colorField;
+  const image = ctx.createImageData(width, height);
+  for (let y = 0; y < height; y++) {
+    for (let x = 0; x < width; x++) {
+      const hex = fieldColor(x / (width - 1), y / (height - 1));
+      const i = (y * width + x) * 4;
+      image.data.set([parseInt(hex.slice(1, 3), 16), parseInt(hex.slice(3, 5), 16), parseInt(hex.slice(5, 7), 16), 255], i);
+    }
+  }
+  ctx.putImageData(image, 0, 0);
+}
+
+const spaceColorsOf = (space: Space) => (space.colors?.length ? space.colors : [space.color === DEFAULT_SPACE_COLOR ? spaceTint(DEFAULT_SPACE_COLOR, false) : space.color]);
+
+function setSpaceColor(color: string) {
+  const space = state?.spaces.find((s) => s.id === editingSpace);
+  if (!space) return;
+  const colors = [...spaceColorsOf(space)];
+  colors[Math.min(colorIndex, colors.length - 1)] = color;
+  api.updateSpace(space.id, { colors });
+}
+
 const presetSwatches = SPACE_COLORS.map(
   (color) =>
     h('button', {
       class: 'swatch',
       style: `--swatch: ${color}`,
       title: color,
-      onclick: () => editingSpace && api.updateSpace(editingSpace, { color }),
+      onclick: () => setSpaceColor(color),
     }) as HTMLElement,
 );
-$('space-colors').replaceChildren(...presetSwatches, customSwatch);
-colorInput.addEventListener('input', () => editingSpace && api.updateSpace(editingSpace, { color: colorInput.value }));
-$('space-color-reset').onclick = () => editingSpace && api.updateSpace(editingSpace, { color: DEFAULT_SPACE_COLOR });
+$('space-colors').replaceChildren(...presetSwatches);
+$('space-color-reset').onclick = () => {
+  colorIndex = 0;
+  if (editingSpace) api.updateSpace(editingSpace, { color: DEFAULT_SPACE_COLOR });
+};
+$('space-color-add').onclick = () => {
+  const space = state?.spaces.find((s) => s.id === editingSpace);
+  if (!space) return;
+  const colors = spaceColorsOf(space);
+  if (colors.length >= 3) return;
+  // The next colour starts a third of the way round the hue circle, at the same lightness.
+  const [hue, , l] = hexHsl(colors[colors.length - 1]);
+  colorIndex = colors.length;
+  api.updateSpace(space.id, { colors: [...colors, hslHex((hue + 120) % 360, 0.72, Math.min(0.93, Math.max(0.27, l)))] });
+};
+
+// Dragging a dot (or pressing the field) changes the selected colour; a drag sends at most one change per frame.
+let dragFrame = 0;
+let dragColor: string | undefined;
+colorField.parentElement!.addEventListener('pointerdown', (e) => {
+  const space = state?.spaces.find((s) => s.id === editingSpace);
+  if (!space) return;
+  const dot = (e.target as Element).closest<HTMLElement>('.color-dot');
+  if (dot) colorIndex = Number(dot.dataset.index);
+  const box = colorField.getBoundingClientRect();
+  const move = (ev: PointerEvent) => {
+    dragColor = fieldColor(Math.min(1, Math.max(0, (ev.clientX - box.left) / box.width)), Math.min(1, Math.max(0, (ev.clientY - box.top) / box.height)));
+    dragFrame ||= requestAnimationFrame(() => {
+      dragFrame = 0;
+      if (dragColor) setSpaceColor(dragColor);
+    });
+  };
+  const target = e.currentTarget as HTMLElement;
+  target.setPointerCapture(e.pointerId);
+  move(e);
+  target.addEventListener('pointermove', move);
+  target.addEventListener('pointerup', () => target.removeEventListener('pointermove', move), { once: true });
+});
+colorHex.addEventListener('input', () => {
+  const value = colorHex.value.trim().replace(/^#?/, '#').toLowerCase();
+  if (/^#[0-9a-f]{6}$/.test(value)) setSpaceColor(value);
+});
+colorHex.addEventListener('keydown', (e) => e.key === 'Enter' && colorHex.blur());
 
 function renderSpaceColors(space: Space) {
   const isDefault = space.color === DEFAULT_SPACE_COLOR;
-  const shown = spaceTint(space.color, false);
-  presetSwatches.forEach((swatch, i) => swatch.classList.toggle('selected', SPACE_COLORS[i] === space.color));
-  customSwatch.classList.toggle('selected', !isDefault && !SPACE_COLORS.includes(space.color));
-  customSwatch.style.setProperty('--swatch', shown);
-  if (colorInput.value !== shown) colorInput.value = shown;
+  const colors = spaceColorsOf(space);
+  colorIndex = Math.min(colorIndex, colors.length - 1);
+  const current = colors[colorIndex];
+  presetSwatches.forEach((swatch, i) => swatch.classList.toggle('selected', !isDefault && SPACE_COLORS[i] === current));
+  $('space-color-dots').replaceChildren(
+    ...colors.map((color, i) => {
+      const { x, y } = fieldPoint(color);
+      return h('span', { class: `color-dot${i === colorIndex ? ' selected' : ''}`, dataset: { index: String(i) }, style: `--dot: ${color}; left: ${x * 100}%; top: ${y * 100}%` });
+    }),
+  );
+  $('space-color-chips').replaceChildren(
+    ...colors.map((color, i) =>
+      h(
+        'button',
+        {
+          class: 'color-chip',
+          role: 'radio',
+          'aria-checked': String(i === colorIndex),
+          'aria-label': `Colour ${i + 1}: ${color}`,
+          style: `--swatch: ${color}`,
+          'aria-keyshortcuts': colors.length > 1 ? 'Delete' : undefined,
+          onclick: () => {
+            colorIndex = i;
+            renderSpaceColors(space);
+          },
+          // The keyboard's way to the remove mark.
+          onkeydown: (e: KeyboardEvent) => {
+            if ((e.key === 'Delete' || e.key === 'Backspace') && colors.length > 1) {
+              colorIndex = Math.max(0, i - 1);
+              api.updateSpace(space.id, { colors: colors.filter((_, j) => j !== i) });
+            }
+          },
+        },
+        colors.length > 1
+          ? h(
+              'span',
+              {
+                class: 'remove',
+                'aria-label': 'Remove this colour',
+                title: 'Remove this colour',
+                onclick: (e: Event) => {
+                  e.stopPropagation();
+                  colorIndex = Math.max(0, i - 1);
+                  api.updateSpace(space.id, { colors: colors.filter((_, j) => j !== i) });
+                },
+              },
+              icon('close'),
+            )
+          : null,
+      ),
+    ),
+  );
+  $('space-color-add').hidden = colors.length >= 3;
+  if (document.activeElement !== colorHex) colorHex.value = current.slice(1);
   $<HTMLButtonElement>('space-color-reset').disabled = isDefault;
 }
 
@@ -1027,6 +1187,8 @@ const paletteInput = $<HTMLInputElement>('palette-input');
 const paletteList = $('palette-results');
 let paletteMode: PaletteMode = 'new-tab';
 let paletteItems: PaletteItem[] = [];
+// Opened with nothing to list (no tabs): just the field, until there is something to show.
+let paletteBare = false;
 let selected = 0;
 /** DuckDuckGo's bangs as { tag: site name } (build-bangs.mjs), once the first `!` was typed. */
 let bangNames: Record<string, string> = {};
@@ -1073,6 +1235,7 @@ function openPalette(mode: PaletteMode) {
   selected = 0;
   historyResults = [];
   paletteBang = undefined;
+  paletteBare = true;
   updatePalette();
   refreshHistory();
 }
@@ -1083,7 +1246,7 @@ function closePalette() {
   api.closePalette();
 }
 
-type PaletteGroup = '' | 'Developer' | 'Actions' | 'Suggestions' | 'Tabs' | 'History' | 'Archive';
+type PaletteGroup = '' | 'Developer' | 'Actions' | 'Frequently visited' | 'Suggestions' | 'Tabs' | 'History' | 'Archive';
 
 /** Commands the bar can run, found by typing any word of their label or keywords. */
 const ACTIONS: Array<{ label: string; keywords: string; icon: IconName; shortcut?: string; run: () => void }> = [
@@ -1110,6 +1273,8 @@ const ACTIONS: Array<{ label: string; keywords: string; icon: IconName; shortcut
   },
   { label: 'Open Boosts', keywords: 'boosts folder scripts css', icon: 'zap', run: () => api.openBoostsFolder() },
 ];
+
+const FREQUENT_VISITS = 5;
 
 function matchingActions(q: string) {
   const words = q.toLowerCase().split(/\s+/).filter(Boolean);
@@ -1179,6 +1344,22 @@ function updatePalette() {
     // A matching shortcut or action is what was meant (`gh 12`, `settings`); otherwise searching is.
     if (items.length && !isUrl) items.push(searchItem);
     else items.unshift(searchItem);
+    // Sites you go to often, when what you type starts their address or title: above the search suggestions.
+    // Visits add up by site (Chromium counts each address apart); the site's most visited page stands for it.
+    const startsWith = (e: HistoryEntry) => host(e.url).startsWith(lower) || e.title.toLowerCase().startsWith(lower);
+    const bySite = new Map<string, { entry: HistoryEntry; visits: number }>();
+    for (const e of historyResults) {
+      const site = bySite.get(host(e.url));
+      if (!site) bySite.set(host(e.url), { entry: e, visits: e.visits });
+      else {
+        site.visits += e.visits;
+        if (e.visits > site.entry.visits) site.entry = e;
+      }
+    }
+    const frequent = [...bySite.values()].filter((s) => s.visits >= FREQUENT_VISITS && startsWith(s.entry)).sort((a, b) => b.visits - a.visits);
+    for (const { entry } of frequent.slice(0, 3)) {
+      items.push({ group: 'Frequently visited', icon: entry.url, label: entry.title || entry.url, sub: host(entry.url), run: () => open(entry.url) });
+    }
     if (!isUrl && suggestionsFor && lower.startsWith(suggestionsFor.toLowerCase())) {
       for (const text of paletteSuggestions.filter((s) => s.toLowerCase() !== lower)) items.push({ group: 'Suggestions', icon: 'search', label: text, sub: '', run: () => open(text) });
     }
@@ -1207,7 +1388,7 @@ function updatePalette() {
   }
 
   if (q) {
-    const seen = new Set(openTabs.map((t) => t.url));
+    const seen = new Set([...openTabs.map((t) => t.url), ...items.filter((i) => i.group === 'Frequently visited').map((i) => i.icon as string)]);
     for (const entry of historyResults.filter((e) => !seen.has(e.url)).slice(0, 6)) {
       seen.add(entry.url);
       items.push({ group: 'History', icon: entry.url, label: entry.title || entry.url, sub: host(entry.url), run: () => open(entry.url) });
@@ -1229,6 +1410,8 @@ function updatePalette() {
     items.splice(0, items.length, { group: '', icon: 'search', label: q || `!${tag}`, sub: q ? `${name} search` : 'DuckDuckGo search', bang: { tag, name, active: true }, run: () => open(`!${tag} ${q}`) });
   }
   paletteItems = items;
+  if (items.length) paletteBare = false;
+  palette.classList.toggle('bare', paletteBare);
   selected = Math.min(selected, Math.max(items.length - 1, 0));
   const rows: HTMLElement[] = [];
   let group: PaletteGroup | undefined;
@@ -1754,12 +1937,140 @@ $('fav-card-more').onclick = async () => {
   }
 };
 
+// ---- tab card: a tab row's title, address and quick actions on hover --------------
+
+const tabCard = $('tab-card');
+let tabCardTab: string | undefined;
+let tabCardShow: number | undefined;
+let tabCardLeave: number | undefined;
+let tabCardHiddenAt = 0;
+let tabCardPressed: string | undefined;
+let tabCardOverlay = false;
+const tabRowOf = (target: EventTarget | null) => (target instanceof Element ? target.closest<HTMLElement>('#sidebar .row[data-tab-id]') : null);
+
+function showTabCard() {
+  const tab = tabCardTab ? state?.tabs[tabCardTab] : undefined;
+  const row = tabCardTab ? document.querySelector<HTMLElement>(`#sidebar .row[data-tab-id="${CSS.escape(tabCardTab)}"]`) : null;
+  const space = state?.spaces.find((s) => s.id === state!.activeSpaceId);
+  if (!tab || !row || !space || row.querySelector('[contenteditable], input')) return hideTabCard();
+  $('tab-card-title').textContent = tabTitle(tab);
+  $('tab-card-host').textContent = host(tab.url);
+  $('tab-card-pin').querySelector('span')!.textContent = space.today.includes(tab.id) ? 'Pin' : 'Unpin';
+  $<HTMLButtonElement>('tab-card-split').disabled = !space.activeTabId || space.activeTabId === tab.id;
+  // The frame grows over the page first, or the card would be cut at the sidebar's edge.
+  if (framedWindow && !tabCardOverlay) {
+    tabCardOverlay = true;
+    api.setOverlay?.('tab-card', true);
+  }
+  tabCard.hidden = false;
+  const r = row.getBoundingClientRect();
+  const height = tabCard.offsetHeight;
+  if (framedWindow) {
+    tabCard.style.top = `${Math.max(8, Math.min(r.top - 4, innerHeight - height - 8))}px`;
+  } else {
+    const side = $('sidebar').getBoundingClientRect();
+    tabCard.style.left = `${Math.max(8, (side.width - tabCard.offsetWidth) / 2)}px`;
+    tabCard.style.top = `${r.bottom + 4 + height < side.bottom - 8 ? r.bottom - side.top + 4 : r.top - side.top - height - 4}px`;
+  }
+}
+
+function hideTabCard() {
+  clearTimeout(tabCardShow);
+  clearTimeout(tabCardLeave);
+  tabCardTab = undefined;
+  if (!tabCard.hidden) tabCardHiddenAt = Date.now();
+  tabCard.hidden = true;
+  if (tabCardOverlay) {
+    tabCardOverlay = false;
+    api.setOverlay?.('tab-card', false);
+  }
+}
+
+function openTabCard(id: string, delay: number) {
+  clearTimeout(tabCardLeave);
+  if (id === tabCardTab) return;
+  clearTimeout(tabCardShow);
+  tabCardTab = id;
+  tabCardShow = window.setTimeout(showTabCard, !tabCard.hidden || Date.now() - tabCardHiddenAt < 400 ? 0 : delay);
+}
+
+function leaveTabCard() {
+  clearTimeout(tabCardLeave);
+  tabCardLeave = window.setTimeout(hideTabCard, 160);
+}
+
+const sidebarEl = $('sidebar');
+sidebarEl.addEventListener('pointerover', (e) => {
+  const id = tabRowOf(e.target)?.dataset.tabId;
+  if (!id || id === tabCardPressed) return;
+  tabCardPressed = undefined;
+  openTabCard(id, 700);
+});
+sidebarEl.addEventListener('pointerout', (e) => {
+  if (!tabRowOf(e.target)) return;
+  const to = e.relatedTarget as Node | null;
+  if (to && (tabRowOf(to) || tabCard.contains(to))) return;
+  tabCardPressed = undefined;
+  leaveTabCard();
+});
+sidebarEl.addEventListener('pointerdown', (e) => {
+  if (tabCard.contains(e.target as Node)) return;
+  tabCardPressed = tabRowOf(e.target)?.dataset.tabId;
+  hideTabCard();
+});
+sidebarEl.addEventListener('focusin', (e) => {
+  const row = tabRowOf(e.target);
+  if (row?.matches(':focus-visible')) openTabCard(row.dataset.tabId!, 0);
+});
+sidebarEl.addEventListener('focusout', (e) => {
+  if (!tabCard.contains(e.relatedTarget as Node)) leaveTabCard();
+});
+sidebarEl.addEventListener('contextmenu', hideTabCard);
+sidebarEl.addEventListener('dragstart', hideTabCard);
+tabCard.addEventListener('pointerenter', () => clearTimeout(tabCardLeave));
+tabCard.addEventListener('pointerleave', leaveTabCard);
+window.addEventListener('blur', hideTabCard);
+document.addEventListener('keydown', (e) => e.key === 'Escape' && hideTabCard());
+
+const tabCardAction = (id: string, run: (tabId: string) => void) => {
+  $(id).onclick = () => {
+    const tabId = tabCardTab;
+    hideTabCard();
+    if (tabId) run(tabId);
+  };
+};
+tabCardAction('tab-card-pin', (id) => api.togglePin(id));
+tabCardAction('tab-card-fav', (id) => api.toggleFavorite(id));
+tabCardAction('tab-card-split', (id) => api.splitWith(id));
+
 // ---- wiring ---------------------------------------------------------------------
 
 $('btn-sidebar').onclick = () => api.toggleSidebar();
 $('btn-back').onclick = () => api.back();
 $('btn-forward').onclick = () => api.forward();
-$('btn-reload').onclick = () => (state?.nav.loading ? api.stop() : api.reload());
+$('btn-reload').onclick = () => {
+  if (Date.now() - reloadHeldAt < 400) return;
+  if (state?.nav.loading) api.stop();
+  else api.reload();
+};
+// Pressed and held (or right-clicked), Reload offers a hard reload and emptying the cache, as in Chrome.
+let reloadHold: number | undefined;
+let reloadHeldAt = 0;
+const reloadMenu = () => {
+  reloadHeldAt = Date.now();
+  const box = $('btn-reload').getBoundingClientRect();
+  api.reloadMenu({ right: box.left + 220, top: box.bottom + 4 });
+};
+$('btn-reload').addEventListener('pointerdown', (e) => {
+  if (e.button !== 0) return;
+  clearTimeout(reloadHold);
+  reloadHold = window.setTimeout(reloadMenu, 450);
+});
+for (const type of ['pointerup', 'pointerleave', 'pointercancel']) $('btn-reload').addEventListener(type, () => clearTimeout(reloadHold));
+$('btn-reload').addEventListener('contextmenu', (e) => {
+  e.preventDefault();
+  reloadMenu();
+});
 $('urlbar').onclick = () => api.openPalette('navigate');
 $('btn-newtab').onclick = () => api.openPalette('new-tab');
 $('btn-search').onclick = () => api.openPalette('new-tab');
