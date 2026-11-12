@@ -26,5 +26,7 @@ async function list() {
 
 export async function buildBangs(out) {
   const names = Object.fromEntries((await list()).map((b) => [b.t.toLowerCase(), b.s]));
+  // A fresh checkout (CI) has no dist yet: esbuild makes it later.
+  fs.mkdirSync(out, { recursive: true });
   fs.writeFileSync(path.join(out, 'bangs.json'), JSON.stringify(names));
 }
