@@ -1371,6 +1371,8 @@ footer {
   left: 8px;
   right: 4px;
   bottom: 46px;
+  /* Above the player card (.np-card), which sits over the same corner. */
+  z-index: 6;
   max-height: 50vh;
   display: flex;
   flex-direction: column;
