@@ -573,7 +573,7 @@ async function start() {
     if (id && store.activeSpace.activeTabId !== id) store.activate(id);
   }
 
-  function onRemoved(chromeId: number) {
+  function onRemoved(chromeId: number, info?: chrome.tabs.OnRemovedInfo) {
     siteColors.delete(chromeId);
     if (ours.delete(chromeId)) return;
     if (chromeId === placeholder) placeholder = undefined;
@@ -582,6 +582,9 @@ async function start() {
     live.delete(id);
     livePartition.delete(id);
     rememberLive();
+    // The window closing (quitting the browser, say) isn't closing its tabs: they and the
+    // selected one must come back as they were, not unselected or archived.
+    if (info?.isWindowClosing) return;
     store.closeTab(id);
   }
 
@@ -657,14 +660,14 @@ async function start() {
     const space = store.state.spaces.find((s) => s.id === spaceId);
     if (!space || incognito) return undefined;
     return [
-      { label: 'Edit Space…', run: does('editSpace', spaceId) },
-      { label: 'New Folder', run: does('newFolder') },
-      { label: 'New Tab', run: does('newHomeTab', spaceId) },
+      { label: 'Edit Space…', hot: true, run: does('editSpace', spaceId) },
+      { label: 'New Folder', icon: 'folder' as const, run: does('newFolder') },
+      { label: 'New Tab', icon: 'add' as const, run: does('newHomeTab', spaceId) },
       SEPARATOR,
       { label: 'Separate Cookies and Logins', checked: !!space.isolated, run: does('setSpaceIsolated', spaceId, !space.isolated) },
       ...(space.isolated && canIsolate ? [{ label: 'Clear Cookies and Site Data…', run: { clearSpaceData: spaceId } }] : []),
       SEPARATOR,
-      { label: 'Delete Space…', enabled: store.state.spaces.length > 1, run: { deleteSpace: spaceId } },
+      { label: 'Delete Space…', enabled: store.state.spaces.length > 1, danger: true, run: { deleteSpace: spaceId } },
     ];
   }
 
@@ -676,6 +679,32 @@ async function start() {
       { label: 'Normal Reload', run: does('run', 'reload'), keys: shown('reload') },
       { label: 'Hard Reload', run: does('run', 'hardReload'), keys: shown('hardReload') },
       { label: 'Empty Cache and Hard Reload', run: does('emptyCacheReload') },
+    ];
+  }
+
+  /** A right-click on the sidebar's background: the browser's everyday commands. */
+  function sidebarMenu(): MenuEntry<MenuRun>[] {
+    const shown = (id: ShortcutId) => displayKeys(keysFor(store.state, id));
+    const run = (id: ShortcutId) => ({ run: does('run', id), keys: shown(id) });
+    const active = store.activeTab;
+    const space = store.activeSpace;
+    const favorite = !!active && space.favorites?.includes(active.id);
+    return [
+      { label: 'New Tab', ...run('newTab') },
+      { label: 'New Private Window', ...run('newIncognito') },
+      { label: 'Reopen Closed Tab', ...run('reopenTab') },
+      SEPARATOR,
+      {
+        label: favorite ? 'Remove Page from Favorites' : 'Add Page to Favorites',
+        run: does('toggleFavorite', active?.id ?? ''),
+        enabled: !!active && active.url !== 'about:blank' && !incognito,
+      },
+      { label: 'Copy Link', ...run('copyLink'), enabled: !!active && active.url !== 'about:blank' },
+      SEPARATOR,
+      { label: 'Split View…', ...run('splitNew'), enabled: !!space.activeTabId && !space.split },
+      { label: 'Show/Hide Sidebar', ...run('toggleSidebar') },
+      SEPARATOR,
+      { label: 'Settings…', ...run('settings') },
     ];
   }
 
@@ -772,9 +801,11 @@ async function start() {
     newFolder: spacesOnly(() => store.newFolder()),
     tabMenu: (id: string) => tabMenu(String(id)),
     spaceMenu: (id: string) => spaceMenu(String(id)),
+    sidebarMenu,
     appMenu,
     reloadMenu,
-    openAppMenu: (window: unknown, at: unknown, menu?: unknown) => broadcast('app-menu', window, at, menu === 'reloadMenu' ? 'reloadMenu' : 'appMenu'),
+    openAppMenu: (window: unknown, at: unknown, menu?: unknown, id?: unknown) =>
+      broadcast('app-menu', window, at, menu === 'reloadMenu' || menu === 'extensionMenu' ? menu : 'appMenu', typeof id === 'string' ? id : ''),
     emptyCacheReload: async () => {
       const chromeId = activeChromeId();
       const url = chromeId === undefined ? undefined : (await chrome.tabs.get(chromeId).catch(() => undefined))?.url;
@@ -878,10 +909,10 @@ async function start() {
     zoom: (step: number) => {
       const chromeId = activeChromeId();
       if (chromeId === undefined) return;
-      void chrome.tabs.getZoom(chromeId).then((zoom) => {
+      void chrome.tabs.get(chromeId).then((tab) => (isStartPage(tab) && step !== 0 ? undefined : chrome.tabs.getZoom(chromeId).then((zoom) => {
         const next = step === 0 ? 1 : Math.min(5, Math.max(0.25, zoom + (step > 0 ? 0.1 : -0.1)));
         return chrome.tabs.setZoom(chromeId, next).then(() => refreshNav().then(sendState));
-      });
+      })));
     },
     splitWith: (id: string) => store.splitWith(id),
     exitSplit,
@@ -965,7 +996,12 @@ async function start() {
 
   registerSiteControls({ store, activeChromeId, mainWindow });
   // The top bar shows the page's zoom, whichever way it changed (Ctrl+wheel too).
-  chrome.tabs.onZoomChange.addListener(({ tabId }) => {
+  chrome.tabs.onZoomChange.addListener(({ tabId, newZoomFactor }) => {
+    // The home is the shell's own origin, so its zoom (Ctrl+wheel too) would scale the sidebar
+    // and the top bar with it, and slip the top bar's sky off the page's: it stays at 100%.
+    if (newZoomFactor !== 1) {
+      void chrome.tabs.get(tabId).then((tab) => (isStartPage(tab) ? chrome.tabs.setZoom(tabId, 1) : undefined)).catch(() => {});
+    }
     if (tabId === activeChromeId()) void refreshNav().then(sendState);
   });
   registerNowPlaying({ store, chromeIdFor: (id) => live.get(id), flechaIdFor });
@@ -1204,8 +1240,17 @@ export function run(id: string, n?: number): Promise<boolean> {
 registerDownloads();
 chrome.tabs.onCreated.addListener((tab) => void ready.then((r) => r.onCreated(tab)));
 chrome.tabs.onUpdated.addListener((id, info, tab) => void ready.then((r) => r.onUpdated(id, info, tab)));
+// The home is the shell's own origin: zooming it would scale the sidebar and the top bar with it.
+// Zoom is off on it, per tab so the shell's pages stay at 100%, and back on once the tab leaves it.
+// Read back from the tab rather than remembered, since the background can restart in between.
+chrome.tabs.onUpdated.addListener((id, info) => {
+  if (!info.url) return;
+  const off: chrome.tabs.ZoomSettings = { mode: 'disabled', scope: 'per-tab' };
+  if (isStartPage({ url: info.url } as chrome.tabs.Tab)) void chrome.tabs.setZoomSettings(id, off).catch(() => {});
+  else void chrome.tabs.getZoomSettings(id).then((z) => (z.mode === 'disabled' ? chrome.tabs.setZoomSettings(id, { mode: 'automatic', scope: 'per-origin' }) : undefined)).catch(() => {});
+});
 chrome.tabs.onActivated.addListener((info) => void ready.then((r) => r.onActivated(info)));
-chrome.tabs.onRemoved.addListener((id) => void ready.then((r) => r.onRemoved(id)));
+chrome.tabs.onRemoved.addListener((id, info) => void ready.then((r) => r.onRemoved(id, info)));
 chrome.tabs.onReplaced.addListener((added, removed) => void ready.then((r) => r.onReplaced(added, removed)));
 chrome.webNavigation.onBeforeNavigate.addListener((d) => d.frameId === 0 && void ready.then((r) => r.onNavigationStart(d.tabId, true)));
 chrome.webNavigation.onErrorOccurred.addListener((d) => d.frameId === 0 && void ready.then((r) => r.onNavigationStart(d.tabId, false)));

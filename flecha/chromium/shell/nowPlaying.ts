@@ -83,15 +83,17 @@ export function registerNowPlaying(ctx: NowPlayingContext) {
     // A paused player keeps its card (with Play); a tab that went quiet without one loses it.
     if (!info && !audible) return send(null);
     const playing = info ? info.playing : audible;
-    if (info?.title && namesSongs(store.state.tabs[tabId]?.url)) return send({ tabId, status: 'found', source: 'page', title: info.title, artist: info.artist || undefined, playing });
+    const progress = info && info.duration > 0 ? { current: info.position, duration: info.duration } : undefined;
+    const skip = info ? { canNext: info.canNext, canPrevious: info.canPrevious } : {};
+    if (info?.title && namesSongs(store.state.tabs[tabId]?.url)) return send({ tabId, status: 'found', source: 'page', title: info.title, artist: info.artist || undefined, playing, ...skip, ...(progress ? { progress } : {}) });
 
     const key = keyFor(tabId);
     if (identifying === key) return send({ tabId, status: 'identifying', playing });
     if (recognized.has(key)) {
       const hit = recognized.get(key);
-      return send(hit ? { tabId, status: 'found', source: 'recognized', ...hit, playing } : { tabId, status: 'nomatch', playing });
+      return send(hit ? { tabId, status: 'found', source: 'recognized', ...hit, playing, ...skip, ...(progress ? { progress } : {}) } : { tabId, status: 'nomatch', playing, ...skip, ...(progress ? { progress } : {}) });
     }
-    send({ tabId, status: 'audio', playing });
+    send({ tabId, status: 'audio', playing, ...skip, ...(progress ? { progress } : {}) });
   }
 
   async function identify(tabId: string) {
@@ -131,13 +133,62 @@ export function registerNowPlaying(ctx: NowPlayingContext) {
     },
     mediaControl: async (tabId: unknown, action: unknown) => {
       const chromeId = ctx.chromeIdFor(String(tabId));
-      if (chromeId === undefined || !['play', 'pause', 'next', 'previous'].includes(String(action))) return;
+      if (chromeId === undefined) return;
+      // The card's volume button: muting the tab, so the pill keeps its speaker.
+      if (action === 'mute' || action === 'unmute') {
+        await chrome.tabs.update(chromeId, { muted: action === 'mute' }).catch(() => undefined);
+        setTimeout(() => void loop(), 300);
+        return;
+      }
+      if (!['play', 'pause', 'next', 'previous'].includes(String(action))) return;
       await chrome.flechaPrivate.mediaAction(chromeId, action as MediaAction).catch(() => undefined);
       setTimeout(() => void loop(), 300);
     },
+    togglePip: (tabId: unknown) => {
+      const chromeId = ctx.chromeIdFor(String(tabId));
+      if (chromeId === undefined) return;
+      // The page's own video, in and out of the system's picture-in-picture; the
+      // biggest video wins, when the page has more than one.
+      void chrome.scripting
+        .executeScript({
+          target: { tabId: chromeId },
+          func: () => {
+            const videos = [...document.querySelectorAll('video')].filter((v) => !v.disablePictureInPicture);
+            const video = videos.sort((a, b) => b.videoWidth * b.videoHeight - a.videoWidth * a.videoHeight)[0];
+            if (document.pictureInPictureElement) void document.exitPictureInPicture();
+            else void video?.requestPictureInPicture()?.catch(() => undefined);
+          },
+        })
+        .catch(() => undefined);
+    },
+    seekMedia: (tabId: unknown, seconds: unknown) => {
+      const chromeId = ctx.chromeIdFor(String(tabId));
+      const at = Number(seconds);
+      if (chromeId === undefined || !Number.isFinite(at)) return;
+      // The page's own video is what actually jumps; the session's SeekTo
+      // covers the pages that play without a <video> of their own.
+      void chrome.scripting
+        .executeScript({
+          target: { tabId: chromeId },
+          func: (at: number) => {
+            const videos = [...document.querySelectorAll('video')].filter((v) => !v.disablePictureInPicture);
+            const video = videos.sort((a, b) => b.videoWidth * b.videoHeight - a.videoWidth * a.videoHeight)[0];
+            if (video) video.currentTime = at;
+          },
+          args: [at],
+        })
+        .catch(() => undefined);
+      void chrome.flechaPrivate?.seekMedia?.(chromeId, at).catch(() => undefined);
+    },
     dismissNowPlaying: () => {
-      dismissed = song ? keyFor(song.tabId) : undefined;
+      if (!song) return;
+      // A recognised song: forget it, so the card says what is playing again and
+      // Identify is on the table at once (no waiting for the song to change).
+      if (song.status === 'found' && song.source === 'recognized') recognized.delete(keyFor(song.tabId));
+      // A song the page itself named: hold the card until what plays changes.
+      else if (song.status === 'found' && song.source === 'page') dismissed = keyFor(song.tabId);
       send(null);
+      void loop();
     },
   });
 

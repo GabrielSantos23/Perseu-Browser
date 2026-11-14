@@ -11,7 +11,7 @@
 import type { UiState } from '../shared/types';
 import { cmd, invoke, on } from './client';
 import type { MenuRun } from './protocol';
-import { askDialog, popupMenu, type MenuEntry } from './settingsUi';
+import { askDialog, popupMenu, setMenuPoint, type MenuEntry } from './settingsUi';
 
 const framed = typeof chrome.flechaPrivate?.setFrame === 'function';
 const surface = document.documentElement.dataset.surface;
@@ -32,9 +32,13 @@ const resized = (ms: number) =>
     addEventListener('resize', done);
   });
 
+let overlaySeq = 0;
 /** Covers the window with the frame while `fn` runs. */
-async function overWindow<T>(name: string, fn: () => Promise<T>): Promise<T> {
+async function overWindow<T>(kind: string, fn: () => Promise<T>): Promise<T> {
   if (!windowId) return fn();
+  // Each its own name: a menu opened over another closes that one, whose release of a shared
+  // 'menu' would shrink the frame under the new menu.
+  const name = `${kind}-${++overlaySeq}`;
   const grow = !overlaid;
   cmd('setOverlay')(name, true);
   if (grow) await resized(300);
@@ -57,20 +61,34 @@ export function setupWindowUi(h: WindowUiHooks) {
 }
 
 /** Asks for the background's menu `name` about `id`, shows it at the pointer and runs the pick. */
-export async function showMenu(name: 'tabMenu' | 'spaceMenu' | 'extensionMenu' | 'appMenu' | 'reloadMenu', id: string, at?: { right: number; top: number }) {
+export async function showMenu(name: 'tabMenu' | 'spaceMenu' | 'sidebarMenu' | 'extensionMenu' | 'appMenu' | 'reloadMenu', id: string, at?: { right: number; top: number }) {
   const items = await invoke<MenuEntry<MenuRun>[] | undefined>(name, id);
   if (!items?.length) return;
   const picked = await overWindow('menu', () => popupMenu(items, at));
   if (picked) await runMenuItem(picked.run);
 }
 
-// The top bar's "⋮": the bar is too short to draw it, so this window's frame page does.
-on('app-menu', async (window: string | null, at: { right: number; top: number }, menu: 'appMenu' | 'reloadMenu' = 'appMenu') => {
+// The top bar's "⋮" (and its pinned extensions' menus): the bar is too short to draw them, so
+// this window's frame page does.
+on('app-menu', async (window: string | null, at: { right: number; top: number }, menu: 'appMenu' | 'reloadMenu' | 'extensionMenu' = 'appMenu', id = '') => {
   if (!windowId || window !== new URLSearchParams(location.search).get('window')) return;
   // The arrow keys go to the menu, not to the top bar that was clicked.
   await chrome.flechaPrivate.focus('frame', await windowId);
-  await showMenu(menu, '', at);
+  await showMenu(menu, id, at);
 });
+
+// A right-click on the sidebar's drag ground: the browser takes it from the window's caption
+// menu and asks for the Space's menu, as a right-click on the sidebar's background gives.
+if (windowId) {
+  chrome.flechaPrivate.onFrameContextMenu?.addListener(async (window, x, y) => {
+    const space = hooks?.state()?.activeSpaceId;
+    if (window !== (await windowId) || !space) return;
+    setMenuPoint(x, y);
+    // The arrow keys go to the menu, as for the top bar's "⋮".
+    await chrome.flechaPrivate.focus('frame', window);
+    await showMenu('sidebarMenu', '');
+  });
+}
 
 /** A menu the frame page builds itself (the site panel's "…"); resolves with the picked id. */
 export async function localMenu(items: Array<{ id: string; label: string } | { separator: true }>) {

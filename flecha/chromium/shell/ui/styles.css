@@ -1,7 +1,7 @@
 /* Sidebar, command bar, Peek and downloads. Values come from tokens.css. */
 
 :root {
-  --sidebar: 260px;
+  --sidebar: 230px;
   --row: 34px;
 }
 
@@ -32,6 +32,28 @@ body {
   /* Painted opaque on purpose: Chromium does not clear stale frames under transparent
      pixels of an overlaid view, which made old rows ghost behind new ones. */
   background: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='180' height='180'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='.85' numOctaves='2' stitchTiles='stitch'/%3E%3CfeColorMatrix values='0 0 0 0 .5 0 0 0 0 .5 0 0 0 0 .5 0 0 0 .55 0'/%3E%3C/filter%3E%3Crect width='180' height='180' filter='url(%23n)' opacity='.16'/%3E%3C/svg%3E"), var(--space-gradient, none) var(--space-color, #cdd9f7);
+}
+
+/* The whole sidebar moves the window: it is the shell's frame page, whose
+   -webkit-app-region regions reach the frame's hit test. Everything that
+   answers a click opts out, so drags start on the empty ground between them. */
+#sidebar {
+  -webkit-app-region: drag;
+}
+
+#sidebar button,
+#sidebar input,
+#sidebar select,
+#sidebar textarea,
+#sidebar [contenteditable],
+#sidebar .row,
+#sidebar .fav,
+#sidebar .popover,
+#sidebar .now-playing,
+#tab-card,
+#fav-card,
+#tooltip {
+  -webkit-app-region: no-drag;
 }
 
 .toolbar {
@@ -395,8 +417,22 @@ body[data-address='top'] .address-only {
   height: 14px;
 }
 
+/* Under the address, small, as a toolbar's buttons. */
 #pinned-extensions {
   flex: none;
+  gap: 2px;
+  margin: 6px 0 2px;
+}
+
+#pinned-extensions .extension {
+  width: 28px;
+  height: 28px;
+}
+
+#pinned-extensions .extension img,
+#pinned-extensions .extension .favicon {
+  width: 16px;
+  height: 16px;
 }
 
 #site-extension-list {
@@ -501,19 +537,21 @@ body[data-address='top'] .address-only {
   box-shadow: inset 0 0 0 1.5px color-mix(in srgb, var(--fav-tint, var(--tile-line)) 55%, var(--tile-line)), 0 1px 3px rgba(0, 0, 0, 0.18), 0 0 12px color-mix(in srgb, var(--fav-tint, transparent) 32%, transparent);
 }
 
-/* What a favorite is and what it can do; opens under its tile, inside the sidebar. */
+/* What a favorite is and what it can do; opens under its tile, inside the sidebar.
+   The card wears Perseu's own sheet (the website's tab card): near-black glass
+   with a lit hairline, and the actions as band-filled buttons in a row. */
 #fav-card,
 #tab-card {
   position: absolute;
   z-index: 6;
   width: 216px;
-  padding: 12px 8px 6px;
-  border: 1px solid var(--menu-border);
-  border-radius: var(--radius-lg);
-  background: var(--menu-bg);
-  box-shadow: var(--menu-shadow);
-  color: var(--menu-text);
-  font-family: var(--menu-font);
+  padding: 12px 10px 10px;
+  border: 0;
+  border-radius: 14px;
+  background: var(--perseu-sheet);
+  box-shadow: inset 0 0 0 1px var(--perseu-ring), var(--perseu-drop);
+  color: var(--perseu-text);
+  font-family: var(--font);
   animation: fav-card-in var(--medium) var(--ease);
 }
 
@@ -548,45 +586,48 @@ body[data-address='top'] .address-only {
 
 #tab-card-host {
   font-size: var(--text-sm);
-  opacity: 0.62;
+  color: var(--perseu-faint);
 }
 
 .tab-card-actions {
-  display: grid;
-  grid-template-columns: repeat(3, 1fr);
-  gap: 4px;
-  margin-top: 10px;
+  display: flex;
+  gap: 6px;
+  margin-top: 8px;
 }
 
 .tab-card-actions button {
-  display: grid;
-  justify-items: center;
-  gap: 4px;
-  padding: 8px 4px 6px;
-  border: 1px solid var(--menu-border);
-  border-radius: var(--radius-md);
-  background: transparent;
-  color: inherit;
-  font: 500 var(--text-xs) var(--menu-font);
+  display: flex;
+  flex: 1;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  height: 34px;
+  border: 0;
+  border-radius: 8px;
+  background: rgb(255 255 255 / 0.08);
+  color: var(--perseu-text);
+  font: 500 var(--text-xs) var(--font);
+  transition: background-color 150ms var(--ease);
 }
 
 .tab-card-actions svg {
-  width: 15px;
-  height: 15px;
+  width: 13px;
+  height: 13px;
+  color: var(--perseu-muted);
 }
 
 .tab-card-actions button:disabled {
-  color: var(--menu-disabled);
+  color: var(--perseu-faint);
 }
 
 .tab-card-actions button:focus-visible {
-  outline: 2px solid var(--accent);
+  outline: 2px solid var(--focus);
   outline-offset: 1px;
 }
 
 @media (hover: hover) and (pointer: fine) {
   .tab-card-actions button:hover:not(:disabled) {
-    background: var(--menu-hover);
+    background: rgb(255 255 255 / 0.16);
   }
 }
 
@@ -612,7 +653,7 @@ body[data-address='top'] .address-only {
 
 #fav-card-host {
   font-size: var(--text-sm);
-  opacity: 0.62;
+  color: var(--perseu-faint);
 }
 
 .fav-card-actions {
@@ -1040,6 +1081,18 @@ body[data-address='top'] .address-only {
   font: 700 9px / 1 var(--font);
   color: #fff;
   background: hsl(var(--hue, 210) 42% 48%);
+}
+
+/* Perseu's mark: logo.png is a mask, so it takes the text colour of wherever it sits. */
+.perseu-mark {
+  display: block;
+  background-color: currentColor;
+  -webkit-mask: url(logo.png) center / contain no-repeat;
+  mask: url(logo.png) center / contain no-repeat;
+}
+
+.favicon.perseu-mark {
+  color: var(--text-2);
 }
 
 /* ---- folders ------------------------------------------------------------ */
@@ -1798,6 +1851,114 @@ footer {
   margin-right: 2px;
 }
 
+/* The command bar in Perseu's own design (the website's search card): the
+   sheet's near-black glass with a lit hairline rim, and the blue selected row.
+   Sizes stay Flecha's. */
+#palette {
+  background: rgb(6 10 18 / 0.45);
+}
+
+.palette-box {
+  --surface: var(--perseu-sheet);
+  --surface-2: rgb(255 255 255 / 0.08);
+  --surface-line: rgb(255 255 255 / 0.07);
+  --text: var(--perseu-text);
+  --text-2: var(--perseu-muted);
+  --text-3: var(--perseu-faint);
+  --fill-hover: rgb(255 255 255 / 0.08);
+  --line: rgb(255 255 255 / 0.07);
+
+  border: 0;
+  border-radius: var(--radius-xl);
+  background: var(--perseu-sheet);
+  box-shadow: inset 0 0 0 1px var(--perseu-ring), var(--perseu-drop-deep);
+  color: var(--perseu-text);
+}
+
+.palette-field {
+  gap: 11px;
+  color: var(--perseu-muted);
+  border-bottom: 0;
+  box-shadow: inset 0 -1px 0 rgb(255 255 255 / 0.07);
+}
+
+#palette-input {
+  color: var(--perseu-text);
+  font-weight: 450;
+}
+
+#palette-input::placeholder {
+  color: var(--perseu-faint);
+}
+
+#palette-mode {
+  background: rgb(255 255 255 / 0.09);
+  color: var(--perseu-muted);
+}
+
+#palette-results .group-label {
+  color: var(--perseu-faint);
+}
+
+#palette-results .item {
+  transition: background-color 150ms var(--ease);
+}
+
+#palette-results .item:hover {
+  background: rgb(255 255 255 / 0.08);
+}
+
+#palette-results .item.selected {
+  background: var(--perseu-selection);
+  color: #fff;
+}
+
+.item .item-icon {
+  background: rgb(255 255 255 / 0.08);
+  color: var(--perseu-muted);
+}
+
+.item.selected .item-icon {
+  background: rgb(255 255 255 / 0.22);
+  color: #fff;
+}
+
+.item .sub {
+  color: var(--perseu-faint);
+}
+
+.item.selected .sub {
+  color: rgb(255 255 255 / 0.8);
+}
+
+.item.selected .enter {
+  background: rgb(255 255 255 / 0.22);
+  color: #fff;
+}
+
+#palette-detail {
+  border-top: 0;
+  background: rgb(255 255 255 / 0.04);
+  color: var(--perseu-text);
+  box-shadow: inset 0 1px 0 rgb(255 255 255 / 0.07);
+}
+
+.palette-footer {
+  gap: 16px;
+  color: var(--perseu-faint);
+  border-top: 0;
+  box-shadow: inset 0 1px 0 rgb(255 255 255 / 0.07);
+}
+
+.palette-footer kbd {
+  padding: 1px 6px;
+  border-radius: 5px;
+  background: rgb(255 255 255 / 0.09);
+  box-shadow: inset 0 0 0 1px rgb(255 255 255 / 0.12);
+  font: 500 10.5px var(--font);
+  color: inherit;
+}
+
 /* ---- Space editor ------------------------------------------------------- */
 
 .space-editor {
@@ -2309,15 +2470,131 @@ footer {
   }
 }
 
+/* The Space editor in Perseu's own design (the website's space editor): the
+   sheet's near-black glass, its labels faint, its controls band-filled. Sizes stay Flecha's. */
+.space-editor {
+  --surface: var(--perseu-sheet);
+  --surface-2: rgb(255 255 255 / 0.08);
+  --surface-line: rgb(255 255 255 / 0.07);
+  --text: var(--perseu-text);
+  --text-2: var(--perseu-muted);
+  --text-3: var(--perseu-faint);
+  --fill-hover: rgb(255 255 255 / 0.08);
+
+  border: 0;
+  border-radius: var(--radius-xl);
+  background: var(--perseu-sheet);
+  box-shadow: inset 0 0 0 1px var(--perseu-ring), var(--perseu-drop-deep);
+  color: var(--perseu-text);
+}
+
+/* The arrow keeps its place but takes the sheet and the lit hairline. */
+[data-frame] .space-editor::before {
+  background: var(--perseu-sheet);
+  box-shadow: -1px 1px 0 0 var(--perseu-ring);
+}
+
+.space-editor .sm-icon {
+  border-radius: 10px;
+  background: rgb(255 255 255 / 0.08);
+}
+
+.space-editor .sm-icon:hover,
+.space-editor .sm-icon[aria-expanded='true'] {
+  background: rgb(255 255 255 / 0.14);
+}
+
+.space-editor .text-field {
+  background: rgb(255 255 255 / 0.08);
+  box-shadow: inset 0 0 0 0.5px rgb(255 255 255 / 0.07);
+  color: var(--perseu-text);
+}
+
+.space-editor .text-field:focus {
+  box-shadow: inset 0 0 0 0.5px rgb(255 255 255 / 0.07), 0 0 0 3px var(--focus);
+}
+
+.space-editor .field-label,
+.space-editor .sm-hint {
+  color: var(--perseu-faint);
+}
+
+.space-editor .sm-help {
+  background: rgb(255 255 255 / 0.1);
+  box-shadow: inset 0 0 0 0.5px rgb(255 255 255 / 0.18);
+  color: var(--perseu-muted);
+}
+
+.space-editor .emoji:hover {
+  background: rgb(255 255 255 / 0.08);
+}
+
+.space-editor .emoji.selected {
+  background: rgb(255 255 255 / 0.12);
+  box-shadow: inset 0 0 0 1px rgb(255 255 255 / 0.18);
+}
+
+.space-editor .swatch.selected {
+  box-shadow: inset 0 0 0 0.5px rgba(0, 0, 0, 0.12), 0 0 0 2px var(--perseu-sheet), 0 0 0 3.5px var(--perseu-text);
+}
+
+.space-editor .color-chip[aria-checked='true'] {
+  box-shadow: inset 0 0 0 0.5px rgba(0, 0, 0, 0.12), 0 0 0 2px var(--perseu-sheet), 0 0 0 3.5px var(--perseu-text);
+}
+
+.space-editor .color-chip .remove {
+  background: var(--perseu-text);
+  color: var(--perseu-sheet);
+}
+
+.space-editor .color-hex {
+  border: 0;
+  background: rgb(255 255 255 / 0.08);
+  color: var(--perseu-muted);
+}
+
+.space-editor .color-hex input {
+  color: var(--perseu-text);
+}
+
+.space-editor .sm-extension {
+  border-radius: 8px;
+}
+
+.space-editor .sm-extension:hover:not(:disabled) {
+  background: rgb(255 255 255 / 0.08);
+}
+
+.space-editor .sm-extension.on {
+  background: rgb(255 255 255 / 0.12);
+  box-shadow: inset 0 0 0 1px rgb(255 255 255 / 0.18);
+}
+
+.space-editor .sm-wide {
+  border-radius: 9px;
+  background: rgb(255 255 255 / 0.1);
+  box-shadow: none;
+  color: var(--perseu-text);
+  font-weight: 550;
+}
+
+.space-editor .sm-wide:hover {
+  background: rgb(255 255 255 / 0.16);
+  color: var(--perseu-text);
+}
+
+.space-editor .text-button.danger {
+  color: var(--perseu-danger);
+}
+
 /* ---- empty state -------------------------------------------------------- */
 
-/* Drawn where the page would be, as a card the same shape as a page. */
+/* Drawn where the page would be, as a card the same shape as a page. It is the
+   container the home measures itself in (cqw, cqh). */
 #empty-state {
   position: fixed;
   inset: 8px 8px 8px var(--sidebar);
-  display: flex;
-  flex-direction: column;
-  align-items: center;
+  container-type: size;
   border-radius: var(--page-radius);
   /* Opaque: a page-shaped card a shade off the Space colour. */
   background: color-mix(in srgb, var(--surface) 72%, var(--space-color, #cdd9f7));
@@ -2330,101 +2607,182 @@ footer {
   display: none;
 }
 
-/* The home screen: a faint constellation, and the input below it, a little above centre. */
+/* Perseu's new tab: the page is a window onto the night sky, a picture whose
+   horizon sits at 60% of the height and dissolves into the page below it. The
+   name stands low in the open sky, the time and date under it, the address
+   field under that, and the settings at the top right. */
 .home {
-  flex: 1;
-  width: min(640px, 100% - 48px);
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  justify-content: center;
-  gap: 32px;
-  padding-bottom: 12vh;
+  --horizon: 60cqh;
+  --mw: clamp(260px, 36cqw, 480px);
+  --mh: calc(var(--mw) * 0.1436);
+  --centre: calc(50px + (var(--horizon) - 50px) * 0.74);
+  --top: max(82px, calc(var(--centre) - (var(--mh) + 36px) / 2));
+  --sw: max(100cqw, 154.5cqh);
+
+  position: absolute;
+  inset: 0;
+  overflow: hidden;
+  background: #1a1d25;
+  color: #fff;
 }
 
-/* Perseu's mark: logo.png is a mask, so it takes the text colour of wherever it sits. */
-.perseu-mark {
-  display: block;
-  background-color: currentColor;
-  -webkit-mask: url(logo.png) center / contain no-repeat;
-  mask: url(logo.png) center / contain no-repeat;
-}
-
-.favicon.perseu-mark {
-  color: var(--text-2);
+/* The sky: one picture, wide enough to cover, its own horizon on the line. */
+.home-sky img {
+  position: absolute;
+  top: calc(var(--horizon) - var(--sw) * 0.3883);
+  left: 50%;
+  width: var(--sw);
+  height: auto;
+  max-width: none;
+  translate: -50% 0;
 }
 
 .home-mark {
-  width: 152px;
-  height: 192px;
-  color: #3d3d3d;
-}
-
-@media (prefers-color-scheme: dark) {
-  .home-mark {
-    color: #6e6e6e;
-  }
-}
-
-.composer {
-  position: relative;
-  width: 100%;
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
-  padding: 12px;
-  border-radius: 20px;
-  --composer-bg: var(--surface);
-  --composer-line: var(--line);
-  background: var(--composer-bg);
-  box-shadow: 0 0 0 1px var(--composer-line), 0 8px 28px rgba(0, 0, 0, 0.12);
-}
-
-/* Dark: on the black page the box is a step lighter, with a hairline, so it reads as a field. */
-@media (prefers-color-scheme: dark) {
-  .composer {
-    --composer-bg: #161616;
-    --composer-line: rgba(255, 255, 255, 0.12);
-    box-shadow: 0 0 0 1px var(--composer-line), 0 8px 28px rgba(0, 0, 0, 0.5);
-  }
-}
-
-/* Hangs off the box's lower edge, narrower than it, the two joined by curves that flare outward. */
-#home-suggestions {
-  --flare: 20px;
   position: absolute;
-  z-index: 2;
-  top: 100%;
-  left: 32px;
-  right: 32px;
+  top: var(--top);
+  left: 50%;
+  width: var(--mw);
+  height: var(--mh);
+  overflow: visible;
+  translate: -50% 0;
+}
+
+.home-wordmark {
+  font-family: 'Geist', var(--font);
+  font-size: 118px;
+  font-weight: 600;
+  letter-spacing: -0.04em;
+  fill: rgb(255 255 255 / 0.92);
+}
+
+/* The visitor's time and date, as the new tab prints them. */
+.home-when {
+  position: absolute;
+  top: calc(var(--top) + var(--mh) + 16px);
+  left: 0;
+  right: 0;
   margin: 0;
-  padding: 8px;
-  list-style: none;
-  border: 1px solid var(--composer-line);
-  border-top: 0;
-  border-radius: 0 0 var(--flare) var(--flare);
-  background: var(--composer-bg);
-  color: var(--text);
+  display: flex;
+  align-items: baseline;
+  justify-content: center;
+  gap: 8px;
+  height: 20px;
+  font-size: 16px;
+  line-height: 20px;
+  text-shadow: 0 1px 18px rgb(2 8 24 / 0.4);
+  opacity: 0;
+  transition: opacity 600ms var(--ease);
 }
 
-#home-suggestions::before,
-#home-suggestions::after {
-  content: '';
+.home-when[data-on='true'] {
+  opacity: 1;
+}
+
+.home-when b {
+  font-weight: 600;
+  letter-spacing: 0.01em;
+  font-variant-numeric: tabular-nums;
+}
+
+.home-when small {
+  font-size: 11px;
+  letter-spacing: 0.08em;
+  opacity: 0.86;
+}
+
+.home-when i {
+  align-self: center;
+  width: 3px;
+  height: 3px;
+  border-radius: 50%;
+  background: currentColor;
+  opacity: 0.52;
+}
+
+/* The address field, under the name and the time, in its own glass. */
+.home-field {
   position: absolute;
-  top: 0;
-  width: var(--flare);
-  height: var(--flare);
+  top: calc(var(--top) + var(--mh) + 52px);
+  left: 50%;
+  z-index: 1;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: clamp(300px, 44cqw, 520px);
+  height: 42px;
+  padding-inline: 16px;
+  translate: -50% 0;
+  border-radius: 999px;
+  background: rgb(8 12 22 / 0.4);
+  box-shadow:
+    inset 0 0 0 0.5px rgb(255 255 255 / 0.2),
+    inset 0 1px 0 rgb(255 255 255 / 0.16);
+  color: rgb(255 255 255 / 0.72);
+  font-size: 14.5px;
+  cursor: text;
+  backdrop-filter: blur(18px);
+  -webkit-backdrop-filter: blur(18px);
+}
+
+.home-field:focus-within {
+  background: rgb(8 12 22 / 0.52);
+}
+
+.home-field svg {
+  flex: none;
+  width: 15px;
+  height: 15px;
+  color: rgb(255 255 255 / 0.55);
+}
+
+.home-field input {
+  flex: 1;
+  min-width: 0;
+  border: 0;
+  outline: none;
+  background: none;
+  font: inherit;
+  font-size: 14.5px;
+  color: #fff;
+}
+
+.home-field input::placeholder {
+  color: rgb(255 255 255 / 0.6);
+}
+
+/* The form spans the home only to hold the field's coordinates; nothing else
+   is reached through it. */
+.home-composer {
+  position: absolute;
+  inset: 0;
   pointer-events: none;
 }
 
-#home-suggestions::before {
-  left: calc(-1 * var(--flare));
-  background: radial-gradient(circle at 0 100%, transparent calc(var(--flare) - 1px), var(--composer-line) calc(var(--flare) - 1px), var(--composer-line) var(--flare), var(--composer-bg) var(--flare));
+.home-field,
+#home-suggestions {
+  pointer-events: auto;
 }
 
-#home-suggestions::after {
-  right: calc(-1 * var(--flare));
-  background: radial-gradient(circle at 100% 100%, transparent calc(var(--flare) - 1px), var(--composer-line) calc(var(--flare) - 1px), var(--composer-line) var(--flare), var(--composer-bg) var(--flare));
+/* The search suggestions, in the field's own glass, one panel under it. */
+#home-suggestions {
+  position: absolute;
+  z-index: 1;
+  top: calc(var(--top) + var(--mh) + 52px + 42px + 8px);
+  left: 50%;
+  width: clamp(300px, 44cqw, 520px);
+  translate: -50% 0;
+  margin: 0;
+  padding: 6px;
+  list-style: none;
+  border-radius: 18px;
+  background: rgb(8 12 22 / 0.4);
+  box-shadow:
+    inset 0 0 0 0.5px rgb(255 255 255 / 0.2),
+    0 24px 60px -20px rgb(0 0 0 / 0.6);
+  backdrop-filter: blur(18px);
+  -webkit-backdrop-filter: blur(18px);
+  color: rgb(255 255 255 / 0.82);
+  overflow: hidden;
 }
 
 #home-suggestions[hidden] {
@@ -2434,15 +2792,23 @@ footer {
 #home-suggestions li {
   display: flex;
   align-items: center;
-  gap: var(--space-3);
-  height: 36px;
-  padding: 0 10px;
-  border-radius: var(--radius-md);
+  gap: 10px;
+  height: 32px;
+  padding: 0 12px;
+  border-radius: 10px;
+  cursor: default;
 }
 
 #home-suggestions li:hover,
 #home-suggestions li.selected {
-  background: color-mix(in srgb, var(--text) 8%, transparent);
+  background: rgb(255 255 255 / 0.08);
+}
+
+#home-suggestions li svg {
+  flex: none;
+  width: 14px;
+  height: 14px;
+  color: rgb(255 255 255 / 0.5);
 }
 
 #home-suggestions .name {
@@ -2459,102 +2825,38 @@ footer {
   overflow: hidden;
   text-overflow: ellipsis;
   font-size: var(--text-sm);
-  opacity: 0.62;
+  color: rgb(255 255 255 / 0.5);
 }
 
 #home-suggestions .palette-chip {
   color: inherit;
 }
 
-
-.composer-field {
-  display: flex;
-  align-items: center;
-  gap: 12px;
-  height: 36px;
-  padding: 0 4px;
-  color: var(--text-3);
-}
-
-.composer-field svg {
-  flex: none;
-  width: 18px;
-  height: 18px;
-}
-
-.composer-field input {
-  flex: 1;
-  min-width: 0;
-  border: 0;
-  outline: none;
-  background: none;
-  font: inherit;
-  font-size: 17px;
-  color: var(--text);
-}
-
-.composer-field input::placeholder {
-  color: var(--text-3);
-}
-
-.composer-actions {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-}
-
-.composer-chip {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  height: 32px;
-  padding: 0 12px 0 10px;
-  border-radius: 16px;
-  background: var(--fill-hover);
-  font-size: var(--text-md);
-  font-weight: 500;
-  color: var(--text-2);
-}
-
-.composer-chip svg,
-.composer-icon svg,
-.composer-send svg {
-  width: 16px;
-  height: 16px;
-}
-
-.composer-icon,
-.composer-send {
+/* Settings, at the top right, in its own glass disc. */
+.home-settings {
+  position: absolute;
+  top: 9px;
+  right: 14px;
+  z-index: 2;
   display: grid;
   place-items: center;
   width: 32px;
   height: 32px;
   border-radius: 50%;
-  background: var(--fill-hover);
-  color: var(--text-2);
+  background: rgb(255 255 255 / 0.1);
+  box-shadow:
+    inset 0 0 0 0.5px rgb(255 255 255 / 0.18),
+    inset 0 1px 0 rgb(255 255 255 / 0.18);
+  color: #fff;
 }
 
-.composer-send:not(:disabled) {
-  background: var(--text);
-  color: var(--surface);
+.home-settings svg {
+  width: 16px;
+  height: 16px;
 }
 
-/* Not there yet: dimmed, and the tooltip says so. */
-.composer [aria-disabled='true'],
-.composer-send:disabled {
-  opacity: 0.45;
-  cursor: default;
-}
-
-.composer button:focus-visible {
-  outline: 2px solid var(--focus);
-  outline-offset: 2px;
-}
-
-@media (hover: hover) and (pointer: fine) {
-  .composer-send:not(:disabled):hover {
-    opacity: 0.88;
-  }
+.home-settings:hover {
+  background: rgb(255 255 255 / 0.18);
 }
 
 .sr-only {
@@ -2620,7 +2922,7 @@ footer {
 }
 
 [data-frame] body[data-address='sidebar'][data-sidebar='docked'] #top-edge {
-  left: 260px;
+  left: 230px;
 }
 
 #edge {
@@ -2967,221 +3269,347 @@ body[data-sidebar='floating'] #sidebar.peek-leaving {
 
 /* ---- now playing ---------------------------------------------------------- */
 
+/* Arc's mini player. At rest one row on a smoked-glass bar: the source's icon
+   (notes rising from it while it plays), back, play/pause, forward, the
+   speaker. On hover it grows upwards over the tabs into the artist and the
+   title (scrolling when long) with the close, and the icon rises to sit
+   beside the title while the first key becomes picture-in-picture (a video)
+   or back to the tab (a music site). The section keeps the bar's room in the
+   sidebar, so nothing moves when it opens. */
 .now-playing {
+  --np-row: 28px;
+  --np-pad: 2px;
+  position: relative;
   flex: none;
-  padding: var(--space-2);
-  border-radius: var(--radius-lg);
-  background: var(--fill-subtle);
-  box-shadow: var(--shadow-row);
+  height: calc(var(--np-row) + var(--np-pad) * 2);
+  margin-top: 6px;
 }
 
 .now-playing[hidden] {
   display: none;
 }
 
-.np-head {
+.np-card {
+  position: absolute;
+  bottom: 0;
+  left: 0;
+  right: 0;
+  z-index: 5;
+  padding: var(--np-pad) 6px;
+  border-radius: 10px;
+  background: rgb(14 14 16 / 0.72);
+  box-shadow: inset 0 0 0 1px rgb(255 255 255 / 0.11), 0 2px 8px rgb(0 0 0 / 0.22);
+  backdrop-filter: blur(18px) saturate(1.2);
+  color: rgb(255 255 255 / 0.78);
+  transition:
+    background 200ms var(--ease),
+    box-shadow 200ms var(--ease);
+}
+
+/* Light Spaces: the same smoke, deep enough for its white text. */
+#sidebar[data-ink='dark'] .np-card {
+  background: rgb(22 22 25 / 0.9);
+}
+
+#now-playing:hover .np-card,
+#now-playing:focus-within .np-card {
+  background: rgb(14 14 16 / 0.86);
+  box-shadow: inset 0 0 0 1px rgb(255 255 255 / 0.12), 0 8px 22px rgb(0 0 0 / 0.3);
+}
+
+#sidebar[data-ink='dark'] #now-playing:hover .np-card,
+#sidebar[data-ink='dark'] #now-playing:focus-within .np-card {
+  background: rgb(22 22 25 / 0.96);
+}
+
+/* It rises in when it first shows. */
+.now-playing.np-enter .np-card {
+  animation: np-rise 280ms var(--ease-strong);
+}
+
+@keyframes np-rise {
+  from {
+    opacity: 0;
+    transform: translateY(8px);
+  }
+}
+
+/* The artist and the title: no height at rest, their own on hover. */
+.np-info {
+  display: grid;
+  grid-template-rows: 0fr;
+  transition: grid-template-rows 220ms var(--ease-strong);
+}
+
+#now-playing:hover .np-info,
+#now-playing:focus-within .np-info {
+  grid-template-rows: 1fr;
+}
+
+.np-info-inner {
+  min-height: 0;
+  overflow: hidden;
+  padding-left: var(--np-row);
+  opacity: 0;
+  transition: opacity 140ms var(--ease);
+}
+
+#now-playing:hover .np-info-inner,
+#now-playing:focus-within .np-info-inner {
+  opacity: 1;
+  transition: opacity 200ms 60ms var(--ease);
+}
+
+.np-artist {
   display: flex;
   align-items: center;
-  gap: var(--space-2);
+  gap: 6px;
+  height: 15px;
+  margin: 5px 0 0;
+  font-size: 11px;
+  line-height: 15px;
+  color: rgb(255 255 255 / 0.6);
+  white-space: nowrap;
 }
 
-.np-art {
-  position: relative;
+.np-artist-text {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.np-identify {
   flex: none;
-  width: 36px;
-  height: 36px;
-  display: grid;
-  place-items: center;
-  border-radius: var(--radius-md);
-  background: var(--fill-hover);
-  transition: filter var(--fast) var(--ease);
+  margin-left: auto;
+  margin-right: 4px;
+  padding: 0;
+  font-size: 10.5px;
+  font-weight: 500;
+  color: rgb(255 255 255 / 0.7);
 }
 
-.np-art:hover {
-  filter: brightness(1.08);
+.np-identify:hover {
+  color: #fff;
+  text-decoration: underline;
 }
 
-.np-source {
-  position: absolute;
-  right: -3px;
-  bottom: -3px;
-  display: grid;
-  place-items: center;
-  width: 18px;
-  height: 18px;
-  border-radius: 5px;
-  background: var(--surface);
-  box-shadow: var(--shadow-row);
+.np-identify[hidden] {
+  display: none;
 }
 
-.np-art .np-source .favicon {
-  width: 12px;
-  height: 12px;
+.np-title-row {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  height: 20px;
 }
 
-.np-art .favicon {
-  width: 18px;
-  height: 18px;
-}
-
-.np-art.cover img {
-  width: 100%;
-  height: 100%;
-  object-fit: cover;
-  border-radius: var(--radius-md);
-}
-
-.np-meta {
+/* The title; a long one runs on a loop, fading out at the edges. */
+.np-marquee {
   flex: 1;
   min-width: 0;
+  overflow: hidden;
+  font-size: 12.5px;
+  font-weight: 500;
+  line-height: 20px;
+  color: #fff;
+  white-space: nowrap;
 }
 
-.np-title,
-.np-sub,
-.np-text {
-  margin: 0;
+.np-marquee.scrolls {
+  mask-image: linear-gradient(to right, transparent, #000 8px, #000 calc(100% - 12px), transparent);
 }
 
-.np-head .np-title,
-.np-sub {
+.np-title-track {
+  display: inline-flex;
+  gap: 32px;
+}
+
+.np-marquee.scrolls .np-title-track {
+  animation: np-marquee var(--np-scroll, 10s) linear infinite;
+  animation-play-state: paused;
+}
+
+#now-playing:hover .np-marquee.scrolls .np-title-track,
+#now-playing:focus-within .np-marquee.scrolls .np-title-track {
+  animation-play-state: running;
+}
+
+@keyframes np-marquee {
+  to {
+    transform: translateX(var(--np-shift, -100%));
+  }
+}
+
+/* The keys, spread across the bar. */
+.np-controls {
   display: flex;
   align-items: center;
-  gap: var(--space-1);
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
+  justify-content: space-between;
+  height: var(--np-row);
 }
 
-.np-title {
-  font-size: var(--text-md);
-  font-weight: 600;
-  line-height: 18px;
-  color: var(--text);
-}
-
-.np-sub {
-  font-size: var(--text-sm);
-  line-height: 16px;
-  color: var(--text-2);
-}
-
-.np-clip {
-  min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
-
-.np-badge {
-  flex: none;
+.np-ctl {
   display: grid;
+  place-items: center;
+  flex: none;
+  width: var(--np-row);
+  height: var(--np-row);
+  border-radius: 7px;
+  color: inherit;
+  transition:
+    background var(--fast) var(--ease),
+    color var(--fast) var(--ease),
+    opacity 160ms var(--ease);
 }
 
-.np-badge svg {
-  width: 12px;
-  height: 12px;
+.np-ctl:hover:not(:disabled) {
+  background: rgb(255 255 255 / 0.1);
+  color: #fff;
 }
 
-.np-close {
-  align-self: flex-start;
-  width: 24px;
-  height: 24px;
+.np-ctl:disabled {
+  opacity: 0.3;
+  cursor: default;
 }
 
-.np-close svg {
+.np-ctl svg {
   width: 14px;
   height: 14px;
 }
 
-.np-controls {
-  display: flex;
-  align-items: center;
-  gap: 2px;
-  margin-top: var(--space-1);
+.np-ctl .np-glyph {
+  fill: currentColor;
+  stroke: none;
 }
 
-.np-controls .icon-button svg {
-  width: 15px;
-  height: 15px;
+/* Play/pause stands out from the keys around it. */
+.np-toggle {
+  color: #fff;
 }
 
-.np-controls .icon-button {
-  flex: none;
+.np-close {
+  width: 20px;
+  height: 20px;
+  margin-right: 4px;
+  border-radius: 5px;
+  color: rgb(255 255 255 / 0.5);
 }
 
-.np-chip {
-  display: flex;
-  align-items: center;
-  gap: var(--space-1);
-  height: 28px;
-  padding: 0 var(--space-2);
-  border-radius: var(--radius-sm);
-  font-size: var(--text-sm);
-  font-weight: 500;
-  white-space: nowrap;
-  color: var(--text);
-  background: var(--fill-hover);
-  transition: background var(--fast) var(--ease);
+.np-close svg {
+  width: 11px;
+  height: 11px;
 }
 
-.np-chip:hover {
-  background: var(--fill-active);
+/* At rest the source's icon holds the first key's place. */
+.np-first {
+  opacity: 0;
+  pointer-events: none;
 }
 
-.np-chip svg {
-  width: 13px;
-  height: 13px;
+#now-playing:hover .np-first,
+#now-playing:focus-within .np-first {
+  opacity: 1;
+  pointer-events: auto;
+  transition: opacity 180ms 80ms var(--ease);
 }
 
-.np-eq {
-  flex: none;
-  display: flex;
-  align-items: flex-end;
-  gap: 2px;
-  height: 10px;
+/* The source's icon: centred on the first key, and on hover up beside the
+   title (the title row's centre is 24px above the keys' row). */
+.np-source-wrap {
+  position: absolute;
+  left: calc(6px + (var(--np-row) - 16px) / 2);
+  bottom: calc(var(--np-pad) + (var(--np-row) - 16px) / 2);
+  width: 16px;
+  height: 16px;
+  transition: transform 240ms var(--ease-strong);
+  pointer-events: none;
 }
 
-.np-eq i {
-  width: 2px;
-  height: 100%;
-  border-radius: 1px;
-  background: currentColor;
-  animation: np-eq 0.9s ease-in-out infinite;
+#now-playing:hover .np-source-wrap,
+#now-playing:focus-within .np-source-wrap {
+  transform: translateY(-24px);
 }
 
-.np-eq i:nth-child(2) {
-  animation-delay: -0.3s;
+.np-source {
+  display: grid;
+  place-items: center;
+  width: 16px;
+  height: 16px;
 }
 
-.np-eq i:nth-child(3) {
-  animation-delay: -0.6s;
+.np-source .favicon,
+.np-source img {
+  width: 16px;
+  height: 16px;
+  border-radius: 4px;
+  object-fit: contain;
 }
 
-@keyframes np-eq {
-  0%, 100% { transform: scaleY(0.3); }
-  50% { transform: scaleY(1); }
+.np-source .favicon.letter {
+  font-size: 9px;
 }
 
-@media (prefers-reduced-motion: reduce) {
-  .np-eq i {
-    animation: none;
-    transform: scaleY(0.6);
+/* While it plays, notes drift up from the icon and fade. */
+.np-notes {
+  position: absolute;
+  bottom: 12px;
+  left: 1px;
+  width: 16px;
+  height: 14px;
+  display: none;
+}
+
+.now-playing[data-playing] .np-notes {
+  display: block;
+}
+
+.np-notes i {
+  position: absolute;
+  bottom: 0;
+  left: 0;
+  font-style: normal;
+  font-size: 9px;
+  line-height: 1;
+  color: rgb(255 255 255 / 0.6);
+  opacity: 0;
+  animation: np-note 2.4s var(--ease) infinite;
+}
+
+.np-notes i:nth-child(2) {
+  left: 5px;
+  animation-delay: 0.8s;
+}
+
+.np-notes i:nth-child(3) {
+  left: 2px;
+  animation-delay: 1.6s;
+}
+
+@keyframes np-note {
+  0% {
+    opacity: 0;
+    transform: translate(0, 3px) scale(0.7);
+  }
+  20% {
+    opacity: 1;
+  }
+  100% {
+    opacity: 0;
+    transform: translate(5px, -9px) scale(1) rotate(12deg);
   }
 }
 
+@media (prefers-reduced-motion: reduce) {
+  .now-playing.np-enter .np-card,
+  .np-marquee.scrolls .np-title-track,
+  .np-notes i {
+    animation: none;
+  }
 
-.np-actions {
-  display: flex;
-  justify-content: flex-end;
-  align-items: center;
-  gap: var(--space-2);
-  margin-top: var(--space-2);
-}
-
-.np-actions .text-button {
-  height: 28px;
-  padding: 0 var(--space-2);
-  font-size: var(--text-sm);
-  color: var(--text-2);
+  .np-notes {
+    display: none !important;
+  }
 }
 
 /* Before the first state the window page covers the window in its plain colour (flechaApi.ts), rather than the browser for a moment before the welcome tour. */

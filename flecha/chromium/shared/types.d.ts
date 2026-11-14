@@ -431,7 +431,12 @@ export interface NowPlaying {
   artwork?: string;
   /** Where the name came from: the page's own media info, or the recognition service. */
   source?: 'page' | 'recognized';
+  /** Where the song stands, when the page says so; both in seconds. */
+  progress?: { current: number; duration: number };
   playing: boolean;
+  /** Whether the page can skip; unknown (undefined) shows the keys enabled. */
+  canNext?: boolean;
+  canPrevious?: boolean;
 }
 
 /** In the user's order. */
@@ -445,12 +450,17 @@ export interface FlechaApi {
   /** The song card; null hides it. Chromium build only. */
   onNowPlaying?(cb: (song: NowPlaying | null) => void): void;
   identifySong?(tabId: string): void;
-  mediaControl?(tabId: string, action: 'play' | 'pause' | 'next' | 'previous'): void;
+  mediaControl?(tabId: string, action: 'play' | 'pause' | 'next' | 'previous' | 'mute' | 'unmute'): void;
+  /** The tab's video, in and out of the system's picture-in-picture. */
+  togglePip?(tabId: string): void;
+  /** Jumps the tab's media to this many seconds in. */
+  seekMedia?(tabId: string, seconds: number): void;
   /** The answer to the card's first-time question: recognise songs automatically or not. */
   dismissNowPlaying?(): void;
   /** Opens its popup beside `anchor`, in this page's coordinates. */
   openExtension(id: string, name: string, anchor: { x: number; y: number; width: number; height: number }): void;
-  extensionMenu(id: string): void;
+  /** Resolves once the menu has closed (and its pick has run). */
+  extensionMenu(id: string): Promise<void>;
   moveExtension(id: string, beforeId?: string): void;
   setExtensionsCollapsed(collapsed: boolean): void;
   onState(cb: (state: UiState) => void): void;
@@ -496,6 +506,8 @@ export interface FlechaApi {
   deleteSpace(spaceId: string): void;
   tabMenu(tabId: string): Promise<void>;
   spaceMenu(spaceId: string): void;
+  /** The sidebar background's menu: New Tab, Copy Link, Settings… */
+  sidebarMenu(): void;
   toggleFolder(folderId: string): void;
   renameFolder(folderId: string, name: string): void;
   deleteFolder(folderId: string, keepTabs: boolean): void;

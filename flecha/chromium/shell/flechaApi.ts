@@ -5,7 +5,7 @@
 import type { FlechaApi, PaletteMode, UiState } from '../shared/types';
 import { spaceTint } from './lib/spaceTint';
 import { resolveInput } from './lib/url';
-import { TOP_BAR_HEIGHT, topBarColors } from './lib/topBar';
+import { TOP_BAR_HEIGHT, TOP_EDGE_HEIGHT, topBarColors } from './lib/topBar';
 import { cmd, invoke, on } from './client';
 import { confirmDeleteSpace, copy, localMenu, setupWindowUi, showMenu } from './windowUi';
 import { incognito } from './incognito';
@@ -49,18 +49,62 @@ void windowId?.then((id) => chrome.flechaPrivate.setFrame({ sidebar: 'docked', o
 let laidOut = false;
 // Never left covered if the background is slow to answer.
 setTimeout(() => !laidOut && void windowId?.then((id) => chrome.flechaPrivate.setFrame({ sidebar: 'docked', overlay: false, background: systemDark.matches ? '#101012' : '#f1f1f3', topBar: TOP_BAR_HEIGHT }, id)), 4000);
+// The bar's height as last sent, and its slide between the edge strip and the whole bar.
+let barShown: number | undefined;
+let barSlide: { from: number; to: number; start: number } | undefined;
+const BAR_SLIDE_MS = 180;
+const reduceMotion = matchMedia('(prefers-reduced-motion: reduce)');
+
 function applyFrame() {
   if (!windowId || !frameState || !lastState) return;
   laidOut = true;
-  const background = spaceTint(lastState.tint, systemDark.matches);
+  // With the address in the sidebar the bar stays away until the pointer asks for it: an edge
+  // strip along the page's top (TOP_EDGE_HEIGHT; the browser puts no window buttons in a bar
+  // thinner than them) is what the pointer reaches, and the bar then slides back in.
+  const target = lastState.addressInSidebar && !frameState.topBarPeek ? TOP_EDGE_HEIGHT : TOP_BAR_HEIGHT;
+  if (barShown === undefined || reduceMotion.matches) {
+    barShown = target;
+    barSlide = undefined;
+  } else if (target !== (barSlide?.to ?? barShown)) {
+    barSlide = { from: barShown, to: target, start: performance.now() };
+    requestAnimationFrame(stepBar);
+    // Frames stop while the window is covered or minimized; the bar still gets where it's going.
+    const slide = barSlide;
+    setTimeout(() => barSlide === slide && stepBar(slide.start + BAR_SLIDE_MS), BAR_SLIDE_MS + 120);
+  }
+  sendFrame();
+}
+
+function stepBar(now: number) {
+  if (!barSlide) return;
+  const t = Math.min(1, (now - barSlide.start) / BAR_SLIDE_MS);
+  barShown = Math.round(barSlide.from + (barSlide.to - barSlide.from) * (1 - (1 - t) ** 3));
+  if (t < 1) requestAnimationFrame(stepBar);
+  else barSlide = undefined;
+  sendFrame();
+}
+
+// The bar (topbar.ts) can't tell from its height alone whether it's thin; this page says so.
+const barChannel = windowId ? new BroadcastChannel('perseu-topbar') : undefined;
+let barWasThin: boolean | undefined;
+
+function sendFrame() {
+  if (!windowId || !frameState || !lastState) return;
+  const state = lastState;
+  const thin = (barShown ?? TOP_BAR_HEIGHT) < TOP_BAR_HEIGHT;
+  if (thin !== barWasThin) {
+    barWasThin = thin;
+    barChannel?.postMessage({ window: new URLSearchParams(location.search).get('window'), thin });
+  }
+  const background = spaceTint(state.tint, systemDark.matches);
   // A gradient Space: the window fades between its colours, top to bottom, as the sidebar does.
-  const gradient = lastState.tints && lastState.tints.length > 1 ? lastState.tints.map((c) => spaceTint(c, systemDark.matches)) : undefined;
-  // The top bar (topbar.ts), in the page's colour; the window buttons take its text colour.
-  const topBarForeground = topBarColors(lastState.siteColor, systemDark.matches).fg;
-  const { topBarPeek, ...layout } = frameState;
-  // With the address in the sidebar the bar stays away until the pointer asks for it (-1: no room for it; the window buttons float over the page).
-  const topBar = lastState.addressInSidebar && !topBarPeek ? -1 : TOP_BAR_HEIGHT;
-  const plain = { ...layout, background, topBar, topBarForeground };
+  const gradient = state.tints && state.tints.length > 1 ? state.tints.map((c) => spaceTint(c, systemDark.matches)) : undefined;
+  // The top bar (topbar.ts), in the page's colour; the window buttons take its text colour. The
+  // browser paints the card behind the bar in that colour too, which is all the bare bar (the
+  // address in the sidebar) shows: there from the first frame, as the bar's own paint isn't.
+  const { bg: topBarBackground, fg: topBarForeground } = topBarColors(lastState.siteColor);
+  const { topBarPeek: _peek, ...layout } = frameState;
+  const plain = { ...layout, background, topBar: barShown ?? TOP_BAR_HEIGHT, topBarForeground, topBarBackground };
   void windowId.then((id) => {
     if (!gradient) return chrome.flechaPrivate.setFrame(plain, id);
     try {
@@ -133,6 +177,8 @@ const api: FlechaApi = {
   onNowPlaying: (cb) => on('now-playing', cb),
   identifySong: cmd('identifySong'),
   mediaControl: cmd('mediaControl'),
+  togglePip: cmd('togglePip'),
+  seekMedia: cmd('seekMedia'),
   dismissNowPlaying: cmd('dismissNowPlaying'),
   setSpaceIsolated: cmd('setSpaceIsolated'),
   // Electron asks first, in a message box; the page asks in its own dialog.
@@ -140,6 +186,7 @@ const api: FlechaApi = {
   // Electron pops native menus; the page draws them, from items the background builds.
   tabMenu: (id) => showMenu('tabMenu', id),
   spaceMenu: (id) => void showMenu('spaceMenu', id),
+  sidebarMenu: () => void showMenu('sidebarMenu', ''),
   toggleFolder: cmd('toggleFolder'),
   renameFolder: cmd('renameFolder'),
   deleteFolder: cmd('deleteFolder'),
@@ -216,7 +263,7 @@ const api: FlechaApi = {
     if (!windowId) return;
     await chrome.flechaPrivate.openExtensionAction(id, anchor, await windowId).catch(() => cmd('flash')(`${name} isn’t available on this page`));
   },
-  extensionMenu: (id) => void showMenu('extensionMenu', id),
+  extensionMenu: (id) => showMenu('extensionMenu', id),
   reloadMenu: (at) => void showMenu('reloadMenu', '', at),
   moveExtension: cmd('moveExtension'),
   setExtensionsCollapsed: cmd('setExtensionsCollapsed'),

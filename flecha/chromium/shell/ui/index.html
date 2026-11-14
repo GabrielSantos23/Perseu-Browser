@@ -4,7 +4,7 @@
     <meta charset="utf-8" />
     <meta
       http-equiv="Content-Security-Policy"
-      content="default-src 'self'; font-src 'self'; img-src * data: crx: favicon: chrome://extension-icon; style-src 'self' 'unsafe-inline'; script-src 'self'"
+      content="default-src 'self'; font-src 'self'; img-src 'self' * data: crx: favicon: chrome://extension-icon; style-src 'self' 'unsafe-inline'; script-src 'self'"
     />
     <title>Perseu</title>
     <link rel="stylesheet" href="tokens.css" />
@@ -39,6 +39,9 @@
         <button id="btn-copy-link" class="url-action" aria-label="Copy link" data-tip="Copy link" data-shortcut="copyLink"><i data-icon="link"></i></button>
         <button id="btn-site" class="url-action" data-opens="site-panel" aria-label="Site controls" aria-haspopup="dialog" aria-expanded="false" data-tip="Site controls"><i data-icon="sliders"></i></button>
       </div>
+
+      <!-- Without the top bar (the address in the sidebar), the pinned extensions sit under the address. -->
+      <div id="pinned-extensions" class="extension-list address-only" role="group" aria-label="Pinned extensions" hidden></div>
 
       <div id="agent-status" hidden>
         <span class="agent-dot"></span>
@@ -167,13 +170,12 @@
         <strong id="tab-card-title"></strong>
         <span id="tab-card-host"></span>
         <div class="tab-card-actions">
-          <button id="tab-card-pin"><i data-icon="pin"></i><span>Pin</span></button>
-          <button id="tab-card-fav"><i data-icon="star"></i><span>Favorite</span></button>
-          <button id="tab-card-split"><i data-icon="columns"></i><span>Split</span></button>
+          <button id="tab-card-pin"><i data-icon="huge:pin"></i><span>Pin</span></button>
+          <button id="tab-card-fav"><i data-icon="huge:star"></i><span>Favorite</span></button>
+          <button id="tab-card-split"><i data-icon="huge:split"></i><span>Split</span></button>
         </div>
       </div>
 
-      <div id="pinned-extensions" class="extension-list" role="group" aria-label="Pinned extensions" hidden></div>
 
       <!-- Downloads, the Spaces, and a new Space, along the bottom. -->
       <nav id="sidebar-footer" aria-label="Spaces">
@@ -196,27 +198,42 @@
     <div id="download-fly" aria-hidden="true" hidden><i data-icon="download"></i></div>
     <div id="tooltip" role="tooltip" hidden><span id="tooltip-text"></span><kbd id="tooltip-kbd"></kbd></div>
 
-    <!-- The home screen: an empty Space, or a new tab, shows only this. -->
+    <!-- The home screen: an empty Space, or a new tab, shows only this.
+         Perseu's new tab, as the product draws it: the page is a window onto the
+         night sky, whose picture dissolves into the page below the horizon. The
+         name stands low in the open sky with the visitor's time and date under
+         it, the address field under that, and the suggestions in the field's own
+         glass when there are any. Settings sits at the top right. -->
     <div id="empty-state" hidden>
       <h1 id="empty-title" class="sr-only"></h1>
       <div class="home">
-        <span class="home-mark perseu-mark" aria-hidden="true"></span>
+        <picture class="home-sky" aria-hidden="true">
+          <source type="image/avif" srcset="sky/night-1200.avif 1200w, sky/night-2200.avif 2200w" sizes="100vw" />
+          <img src="sky/night-1200.jpg" srcset="sky/night-1200.jpg 1200w, sky/night-2200.jpg 2200w" sizes="100vw" alt="" decoding="async" />
+        </picture>
+
+        <button id="home-settings" class="home-settings" aria-label="Settings" data-tip="Settings" data-shortcut="settings">
+          <i data-icon="huge:settings"></i>
+        </button>
+
+        <svg class="home-mark" viewBox="0 0 720 130" role="img" aria-label="Perseu">
+          <text x="360" y="112" text-anchor="middle" class="home-wordmark">Perseu</text>
+        </svg>
+
+        <p class="home-when" data-on="false" aria-hidden="true"></p>
+
         <div id="home-incognito">
           <strong><i data-icon="incognito"></i>Modo anônimo</strong>
           <p>Histórico, cookies e dados de formulários não ficam salvos neste navegador. Sites e sua rede ainda podem ver sua atividade.</p>
         </div>
-        <form id="home-composer" class="composer" role="search">
-          <label class="composer-field">
-            <i data-icon="search"></i>
+
+        <form id="home-composer" class="home-composer" role="search">
+          <label class="home-field">
+            <i data-icon="huge:search"></i>
             <span id="home-bang" class="palette-chip active" hidden></span>
-            <input id="home-input" type="text" placeholder="Search or type a URL" aria-label="Search or type a URL" autocomplete="off" spellcheck="false" />
+            <input id="home-input" type="text" placeholder="Search or enter an address" aria-label="Search or enter an address" autocomplete="off" spellcheck="false" />
           </label>
-          <div class="composer-actions">
-            <button type="button" class="composer-chip" aria-disabled="true" data-tip="Adding tabs or files isn't available yet"><i data-icon="plus"></i>Add tabs or files</button>
-            <span class="spacer"></span>
-            <button type="button" class="composer-icon" aria-label="Voice search" aria-disabled="true" data-tip="Voice search isn't available yet"><i data-icon="mic"></i></button>
-            <button type="submit" id="home-go" class="composer-send" aria-label="Search" data-tip="Search" disabled><i data-icon="arrowUp"></i></button>
-          </div>
+          <button type="submit" id="home-go" class="sr-only" aria-label="Search" disabled></button>
           <ul id="home-suggestions" hidden></ul>
         </form>
       </div>
@@ -240,7 +257,7 @@
     <div id="palette" hidden>
       <div class="palette-box">
         <div class="palette-field">
-          <i data-icon="search"></i>
+          <i data-icon="huge:search"></i>
           <span id="palette-bang" class="palette-chip active" hidden></span>
           <input id="palette-input" spellcheck="false" autocomplete="off" placeholder="Search tabs, history, or type a URL" />
           <span id="palette-mode"></span>

@@ -4,11 +4,12 @@
  * "Delete …?" questions, and a note for what isn't ported yet. Styles are in shell.css.
  */
 import type { AskOptions } from './lib/tabManager';
+import { HUGEICONS } from './ui/icons';
 
 /** A menu as data, like Electron's menu templates: items carry whatever `run` the caller picks. */
 export type MenuEntry<T> =
-  | { label: string; run: T; enabled?: boolean; checked?: boolean; keys?: string }
-  | { label: string; submenu: MenuEntry<T>[]; enabled?: boolean }
+  | { label: string; run: T; enabled?: boolean; checked?: boolean; keys?: string; danger?: boolean; icon?: keyof typeof HUGEICONS; hot?: boolean }
+  | { label: string; submenu: MenuEntry<T>[]; enabled?: boolean; danger?: boolean; icon?: keyof typeof HUGEICONS; hot?: boolean }
   | { separator: true };
 type Picked<T> = { label: string; run: T };
 
@@ -16,6 +17,10 @@ type Picked<T> = { label: string; run: T };
 let pointer = { x: 0, y: 0 };
 for (const type of ['pointerdown', 'contextmenu'] as const) {
   window.addEventListener(type, (e) => (pointer = { x: e.clientX, y: e.clientY }), true);
+}
+/** For a click the page never saw (the browser's onFrameContextMenu says where it was). */
+export function setMenuPoint(x: number, y: number) {
+  pointer = { x, y };
 }
 
 let closeOpenMenu: (() => void) | undefined;
@@ -88,6 +93,16 @@ export function popupMenu<T>(items: MenuEntry<T>[], at?: { right: number; top: n
         }
         const row = Object.assign(document.createElement('button'), { className: 'shell-menu-item', textContent: item.label, tabIndex: -1 });
         row.dataset.key = String(keys++);
+        if ('danger' in item && item.danger) row.classList.add('danger');
+        if ('hot' in item && item.hot) row.classList.add('hot');
+        if ('icon' in item && item.icon) {
+          const svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
+          svg.setAttribute('viewBox', '0 0 24 24');
+          svg.setAttribute('aria-hidden', 'true');
+          svg.innerHTML = HUGEICONS[item.icon];
+          svg.classList.add('shell-menu-icon');
+          row.replaceChildren(svg, ...(row.childNodes.length ? row.childNodes : [document.createTextNode(item.label)]));
+        }
         if ('keys' in item && item.keys) {
           const label = document.createElement('span');
           label.textContent = item.label;
