@@ -29,7 +29,7 @@ jobs:
       version: ${{ steps.merge.outputs.version }}
       branch: ${{ steps.merge.outputs.branch }}
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v7
         with:
           fetch-depth: 0
       - name: Merge a new upstream version
@@ -90,7 +90,7 @@ jobs:
     permissions:
       contents: write
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v7
         with:
           ref: ${{ needs.check.outputs.branch }}
           fetch-depth: 0
