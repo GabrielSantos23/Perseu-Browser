@@ -172,6 +172,12 @@ function render(s: UiState) {
   ($('btn-forward') as HTMLButtonElement).disabled = !s.nav.canGoForward;
   $('btn-reload').querySelector('path')?.setAttribute('d', ICONS[s.nav.loading ? 'close' : 'reload']);
 
+  // A hover card left open across a mode change (⌘S under a still pointer) never gets its pointer-out,
+  // and the tab card's overlay would keep the frame over the whole window.
+  if (document.body.dataset.sidebar !== s.sidebarMode) {
+    hideTabCard();
+    hideFavCard();
+  }
   document.body.dataset.sidebar = s.sidebarMode;
   // shortcut: the bar above the page needs a frame patch that isn't built yet, so the address stays in the sidebar until then.
   document.body.dataset.address = s.addressInSidebar || !HAS_TOP_BAR ? 'sidebar' : 'top';

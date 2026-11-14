@@ -4954,10 +4954,10 @@ index 928a723e2e2275985432ffdf32c8e2063d9477d4..a434ae7bdb68451a5ef5a220580dc91e
        std::move(layout_views)));
 diff --git a/chrome/browser/ui/views/frame/flecha_frame_view.cc b/chrome/browser/ui/views/frame/flecha_frame_view.cc
 new file mode 100644
-index 0000000000000000000000000000000000000000..2d74278e8b653dd24494b39ee79874ceb679ffac
+index 0000000000000000000000000000000000000000..294fd9c79384edad1585f8875c8aca2f2fd334f3
 --- /dev/null
 +++ b/chrome/browser/ui/views/frame/flecha_frame_view.cc
-@@ -0,0 +1,1137 @@
+@@ -0,0 +1,1143 @@
 +// Copyright 2026 The Flecha Authors
 +// Use of this source code is governed by a BSD-style license that can be
 +// found in the LICENSE file.
@@ -5809,6 +5809,12 @@ index 0000000000000000000000000000000000000000..2d74278e8b653dd24494b39ee79874ce
 +  state.content_fullscreen = state_.content_fullscreen;
 +  if (state == state_) {
 +    return;
++  }
++  // The hidden sidebar's page has no drag areas, but its empty report is
++  // ignored (DraggableRegionsChanged), so the docked sidebar's would stay and
++  // turn the edge strip into title bar: no hover reaches it to bring it out.
++  if (state.sidebar == FlechaFrameState::Sidebar::kHidden) {
++    draggable_region_.setEmpty();
 +  }
 +  state_ = state;
 +  ApplyState();
