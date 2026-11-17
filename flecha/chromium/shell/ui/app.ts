@@ -2217,6 +2217,29 @@ acceptDrops($('btn-newtab'), { zone: 'today' });
 
 const nowPlayingCard = $('now-playing');
 let nowPlaying: NowPlaying | null = null;
+// Where the song stands, so the slider can run on its own between ticks.
+let npProgress: { current: number; duration: number; playing: boolean; at: number } | undefined;
+let npDragging = false;
+
+const npFormatTime = (seconds: number) => {
+  const total = Math.max(0, Math.floor(seconds));
+  const h = Math.floor(total / 3600);
+  const m = Math.floor((total % 3600) / 60);
+  const s = total % 60;
+  return h ? `${h}:${String(m).padStart(2, '0')}:${String(s).padStart(2, '0')}` : `${m}:${String(s).padStart(2, '0')}`;
+};
+
+// While the card shows and something plays, the slider keeps counting.
+setInterval(() => {
+  if (!npProgress?.playing || npDragging) return;
+  const slider = document.querySelector<HTMLInputElement>('.np-slider');
+  if (!slider || !npProgress) return;
+  const current = Math.min(npProgress.current + (Date.now() - npProgress.at) / 1000, npProgress.duration);
+  slider.value = String(current);
+  slider.style.setProperty('--np-progress', `${(current / npProgress.duration) * 100}%`);
+  const time = document.querySelector<HTMLElement>('.np-progress .np-time');
+  if (time) time.textContent = npFormatTime(current);
+}, 1000);
 
 /** The player's filled glyphs (16×16), as the media keys draw them. */
 const NP_GLYPHS = {

@@ -131,6 +131,12 @@
   color: var(--perseu-muted);
 }
 
+/* The one the menu came here for, held lit, as the space menu holds Edit Space…. */
+.shell-menu-item.hot,
+.shell-menu-item.hot.active {
+  background: rgb(255 255 255 / 0.1);
+}
+
 .shell-menu-item:has(.shell-menu-keys) {
   justify-content: space-between;
 }

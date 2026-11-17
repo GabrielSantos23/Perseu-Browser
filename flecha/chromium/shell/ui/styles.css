@@ -2028,6 +2028,109 @@ footer {
   box-shadow: -1px 1px 0 0 var(--menu-border);
 }
 
+#palette-input::placeholder {
+  color: var(--perseu-faint);
+}
+
+#palette-mode {
+  background: rgb(255 255 255 / 0.09);
+  color: var(--perseu-muted);
+}
+
+#palette-results .group-label {
+  color: var(--perseu-faint);
+}
+
+#palette-results .item {
+  transition: background-color 150ms var(--ease);
+}
+
+#palette-results .item:hover {
+  background: rgb(255 255 255 / 0.08);
+}
+
+#palette-results .item.selected {
+  background: var(--perseu-selection);
+  color: #fff;
+}
+
+.item .item-icon {
+  background: rgb(255 255 255 / 0.08);
+  color: var(--perseu-muted);
+}
+
+.item.selected .item-icon {
+  background: rgb(255 255 255 / 0.22);
+  color: #fff;
+}
+
+.item .sub {
+  color: var(--perseu-faint);
+}
+
+.item.selected .sub {
+  color: rgb(255 255 255 / 0.8);
+}
+
+.item.selected .enter {
+  background: rgb(255 255 255 / 0.22);
+  color: #fff;
+}
+
+#palette-detail {
+  border-top: 0;
+  background: rgb(255 255 255 / 0.04);
+  color: var(--perseu-text);
+  box-shadow: inset 0 1px 0 rgb(255 255 255 / 0.07);
+}
+
+.palette-footer {
+  gap: 16px;
+  color: var(--perseu-faint);
+  border-top: 0;
+  box-shadow: inset 0 1px 0 rgb(255 255 255 / 0.07);
+}
+
+.palette-footer kbd {
+  padding: 1px 6px;
+  border-radius: 5px;
+  background: rgb(255 255 255 / 0.09);
+  box-shadow: inset 0 0 0 1px rgb(255 255 255 / 0.12);
+  font: 500 10.5px var(--font);
+  color: inherit;
+}
+
+/* ---- Space editor ------------------------------------------------------- */
+
+.space-editor {
+  top: 128px;
+  bottom: auto;
+  max-height: none;
+  z-index: 2;
+}
+
+/* With the browser's frame the Space menu opens beside the sidebar, over the page,
+   pointing at the Space's name (the frame covers the window while it is open). */
+[data-frame] .space-editor {
+  position: fixed;
+  left: calc(var(--sidebar) + 2px);
+  right: auto;
+  width: 320px;
+  overflow: visible;
+}
+
+[data-frame] .space-editor::before {
+  content: '';
+  position: absolute;
+  left: -6px;
+  top: 22px;
+  width: 12px;
+  height: 12px;
+  background: var(--surface);
+  transform: rotate(45deg);
+  box-shadow: -1px 1px 0 0 var(--menu-border);
+}
+
 #space-header {
   border-radius: var(--radius-md);
   cursor: default;
