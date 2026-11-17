@@ -1686,6 +1686,12 @@ document.addEventListener('mousedown', (e) => {
   }
   if (!archivePanel.hidden && !archivePanel.contains(target) && !$('btn-archive').contains(target)) archivePanel.hidden = true;
 });
+// A click on the page takes the focus from the sidebar: that closes the panels too (they
+// don't see the page's clicks, since it is a WebContents of its own).
+window.addEventListener('blur', () => {
+  downloadsPanel.hidden = true;
+  archivePanel.hidden = true;
+});
 
 // ---- drop a tab on the page to split ---------------------------------------------------
 

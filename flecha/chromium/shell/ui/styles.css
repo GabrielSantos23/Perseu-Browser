@@ -1481,6 +1481,13 @@ footer {
   color: var(--text-2);
 }
 
+/* Above the mini player (.np-card, z-index 5): the player grows up over the
+   same corner, and the file list must stay readable. */
+#downloads-panel,
+#archive-panel {
+  z-index: 10;
+}
+
 #downloads-list {
   list-style: none;
   margin: 0;
