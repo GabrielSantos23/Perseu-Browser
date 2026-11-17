@@ -35,6 +35,10 @@ declare namespace chrome.flechaPrivate {
     topBarForeground?: string;
     /** The top bar's colour as #rrggbb: the browser paints the card behind the bar in it. */
     topBarBackground?: string;
+    /** The Space's grain texture: none, grain, sand, denim or tweed. Absent keeps the frame's own fine grain. */
+    texture?: string;
+    /** The texture's strength, 0..1. */
+    textureStrength?: number;
   }
 
   /** Lays out a window's frame. Applies to every normal window when windowId is omitted. */

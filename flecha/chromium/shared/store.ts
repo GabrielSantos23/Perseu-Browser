@@ -1,5 +1,16 @@
-import type { BrowserState, DropTarget, Environment, PinnedNode, SearchEngineId, Space, TabInfo, TabPlacement, WindowBounds } from './types';
+import type { BrowserState, DropTarget, Environment, PinnedNode, SearchEngineId, Space, SpaceTheme, TabInfo, TabPlacement, ThemeColor, WindowBounds } from './types';
 import type { ArcImport, ImportNode } from './importApply';
+
+/** The #rrggbb a theme colour paints, for the surfaces that still read a Space's single colour. */
+function themeColorHex(color: ThemeColor): string | undefined {
+  if (typeof color.c === 'string') {
+    const match = /^#([0-9a-f]{6})([0-9a-f]{2})?$/i.exec(color.c.trim());
+    return match ? `#${match[1].toLowerCase()}` : undefined;
+  }
+  if (!Array.isArray(color.c)) return undefined;
+  const [r, g, b] = color.c;
+  return '#' + [r, g, b].map((c) => Math.min(255, Math.max(0, Math.round(c))).toString(16).padStart(2, '0')).join('');
+}
 
 const SPACE_EMOJIS = ['🏠', '💼', '🎨', '📚', '🧪', '🎮'];
 const ARCHIVE_LIMIT = 500;
@@ -367,7 +378,7 @@ export class Store {
   }
 
   /** Name, emoji and colour. Invalid values are ignored rather than stored. */
-  updateSpace(spaceId: string, patch: { name?: string; emoji?: string; color?: string; colors?: string[]; pinnedExtensions?: string[] }) {
+  updateSpace(spaceId: string, patch: { name?: string; emoji?: string; color?: string; colors?: string[]; theme?: SpaceTheme; pinnedExtensions?: string[] }) {
     const space = this.state.spaces.find((s) => s.id === spaceId);
     if (!space) return;
     const name = typeof patch.name === 'string' ? patch.name.trim().slice(0, 40) : '';
@@ -376,6 +387,7 @@ export class Store {
     if (typeof patch.color === 'string' && (patch.color === 'default' || /^#[0-9a-f]{6}$/i.test(patch.color))) {
       space.color = patch.color.toLowerCase();
       delete space.colors;
+      delete space.theme;
     }
     // A gradient: up to three colours, the first one is the Space's colour.
     if (Array.isArray(patch.colors)) {
@@ -384,7 +396,35 @@ export class Store {
         space.color = colors[0];
         if (colors.length > 1) space.colors = colors;
         else delete space.colors;
+        delete space.theme;
       }
+    }
+    // The Zen theme picker's result: dots, opacity and grain. The Space's colour follows the
+    // primary dot, so the surfaces that still read `color` (the tour, Settings) stay in step.
+    if (patch.theme) {
+      const theme = patch.theme;
+      const gradientColors = (Array.isArray(theme.gradientColors) ? theme.gradientColors : [])
+        .filter((c) => c && (Array.isArray(c.c) || typeof c.c === 'string'))
+        .slice(0, 6)
+        .map((c) => ({
+          ...c,
+          c: Array.isArray(c.c) ? c.c.map((v) => Math.min(255, Math.max(0, Math.round(Number(v) || 0)))) as [number, number, number] : c.c,
+          position:
+            c.position && Number.isFinite(c.position.x) && Number.isFinite(c.position.y)
+              ? { x: Math.min(1, Math.max(0, c.position.x)), y: Math.min(1, Math.max(0, c.position.y)) }
+              : undefined,
+        }));
+      space.theme = {
+        type: 'gradient',
+        gradientColors,
+        opacity: Number.isFinite(theme.opacity) ? Math.min(1, Math.max(0, theme.opacity)) : 0.5,
+        texture: Number.isFinite(theme.texture) ? Math.min(1, Math.max(0, theme.texture)) : 0,
+        textureType: ['none', 'grain', 'sand', 'denim', 'tweed'].includes(theme.textureType) ? theme.textureType : 'grain',
+      };
+      const primary = gradientColors.find((c) => c.isPrimary) ?? gradientColors[0];
+      const hex = primary ? themeColorHex(primary) : undefined;
+      if (hex) space.color = hex;
+      delete space.colors;
     }
     if (Array.isArray(patch.pinnedExtensions)) {
       // Extension ids are 32 letters a–p; anything else is dropped.

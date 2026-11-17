@@ -1,0 +1,8 @@
+The Space theme picker in this folder is a port of Zen Browser's workspace theme picker
+(https://github.com/zen-browser/desktop), used under the Mozilla Public License 2.0:
+
+  ui/themePicker.ts, lib/zenTheme.ts, the .zen-theme-picker rules in ui/styles.css,
+  and the grain textures (grain-bg.png, sand-bg.png, denim-bg.png, tweed-bg*.png)
+
+Those files are subject to the MPL 2.0 (https://mozilla.org/MPL/2.0/). The rest of Flecha
+keeps its own license.

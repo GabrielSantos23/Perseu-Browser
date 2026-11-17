@@ -46,6 +46,14 @@ function render(s: UiState) {
   const { bg, fg } = topBarColors(s.siteColor);
   document.documentElement.style.setProperty('--site-bg', bg);
   document.documentElement.style.setProperty('--site-fg', fg);
+  // The Space's grain lives on the sidebar; the bar is chrome too, so it gets the same layer.
+  if (s.spaceGrain && s.spaceGrain.texture !== 'none' && s.spaceGrain.strength > 0) {
+    document.documentElement.dataset.spaceTexture = s.spaceGrain.texture;
+    document.documentElement.style.setProperty('--zen-grain-strength', String(s.spaceGrain.strength));
+  } else {
+    delete document.documentElement.dataset.spaceTexture;
+    document.documentElement.style.removeProperty('--zen-grain-strength');
+  }
 
   // With the address in the sidebar, so are back, forward and reload.
   $('nav').hidden = !!s.addressInSidebar;

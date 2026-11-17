@@ -4,6 +4,7 @@
  */
 import type { FlechaApi, PaletteMode, UiState } from '../shared/types';
 import { spaceTint } from './lib/spaceTint';
+import { themeFrameColors, themeGradient, themeInk, themeTint } from './lib/zenTheme';
 import { resolveInput } from './lib/url';
 import { TOP_BAR_HEIGHT, TOP_EDGE_HEIGHT, topBarColors } from './lib/topBar';
 import { cmd, invoke, on } from './client';
@@ -25,9 +26,32 @@ if (incognito) document.documentElement.dataset.incognito = '';
  */
 const stateListeners: Array<(state: UiState) => void> = [];
 let lastState: UiState | undefined;
+/**
+ * The painted theme, cached: the layered gradient is a ~34 KB string to build, and the state
+ * arrives on every tab change, so only a new theme, scheme or window height rebuilds it.
+ */
+let themeCache: { key: string; value: Pick<UiState, 'tint' | 'spaceGradient' | 'spaceInk' | 'spaceGrain'> } | undefined;
+function themePresentation(theme: NonNullable<UiState['spaceTheme']>, dark: boolean) {
+  const key = JSON.stringify([theme, dark, window.innerHeight]);
+  if (themeCache?.key === key) return themeCache.value;
+  const value = {
+    tint: themeTint(theme, dark),
+    spaceGradient: themeGradient(theme, dark, 230, window.innerHeight),
+    spaceInk: themeInk(theme, dark),
+    spaceGrain: { texture: theme.textureType ?? 'none', strength: theme.texture ?? 0 },
+  };
+  themeCache = { key, value };
+  return value;
+}
+
 function emitState(state: UiState) {
   lastState = state;
-  const shown = { ...state, tint: spaceTint(state.tint, systemDark.matches), tints: state.tints?.map((c) => spaceTint(c, systemDark.matches)), faviconUrls: siteIcons };
+  const dark = systemDark.matches;
+  let shown: UiState = { ...state, tint: spaceTint(state.tint, dark), tints: state.tints?.map((c) => spaceTint(c, dark)), faviconUrls: siteIcons };
+  // A Zen theme paints its own gradient, ink and grain; they replace the Space's plain colours.
+  if (state.spaceTheme) {
+    shown = { ...shown, ...themePresentation(state.spaceTheme, dark), tints: undefined };
+  }
   for (const cb of stateListeners) cb(shown);
   applyFrame();
 }
@@ -42,6 +66,10 @@ on('site-icons', (icons: Record<string, string>) => {
 
 // The frame page lays its window out: the background says how, this page adds the colour.
 let frameState: { sidebar: chrome.flechaPrivate.SidebarMode; overlay: boolean; topBarPeek?: boolean } | undefined;
+// Overlays this page asked for. The frame has to grow in the same turn as the request: waiting for
+// the background's echo leaves it sidebar-width for a few frames, and clicks on a popover that
+// reaches past it (the Space menu) land on the page instead.
+const localOverlays = new Set<string>();
 const windowId = surface === 'window' && framed ? chrome.flechaPrivate.getWindowId() : undefined;
 // Until the background lays the window out, this page covers all of it in the plain window colour (styles.css),
 // so neither a blank sidebar nor Chromium's own new tab page shows while the shell starts.
@@ -56,12 +84,18 @@ const BAR_SLIDE_MS = 180;
 const reduceMotion = matchMedia('(prefers-reduced-motion: reduce)');
 
 function applyFrame() {
-  if (!windowId || !frameState || !lastState) return;
+  if (!windowId || !lastState) return;
+  // Before the background's first layout arrives, a local overlay still needs a frame to grow.
+  const layout = frameState ?? {
+    sidebar: lastState.sidebarMode as chrome.flechaPrivate.SidebarMode,
+    overlay: false,
+    topBarPeek: false,
+  };
   laidOut = true;
   // With the address in the sidebar the bar stays away until the pointer asks for it: an edge
   // strip along the page's top (TOP_EDGE_HEIGHT; the browser puts no window buttons in a bar
   // thinner than them) is what the pointer reaches, and the bar then slides back in.
-  const target = lastState.addressInSidebar && !frameState.topBarPeek ? TOP_EDGE_HEIGHT : TOP_BAR_HEIGHT;
+  const target = lastState.addressInSidebar && !layout.topBarPeek ? TOP_EDGE_HEIGHT : TOP_BAR_HEIGHT;
   if (barShown === undefined || reduceMotion.matches) {
     barShown = target;
     barSlide = undefined;
@@ -89,29 +123,53 @@ const barChannel = windowId ? new BroadcastChannel('perseu-topbar') : undefined;
 let barWasThin: boolean | undefined;
 
 function sendFrame() {
-  if (!windowId || !frameState || !lastState) return;
+  if (!windowId || !lastState) return;
+  const layout = frameState ?? {
+    sidebar: lastState.sidebarMode as chrome.flechaPrivate.SidebarMode,
+    overlay: false,
+    topBarPeek: false,
+  };
   const state = lastState;
   const thin = (barShown ?? TOP_BAR_HEIGHT) < TOP_BAR_HEIGHT;
   if (thin !== barWasThin) {
     barWasThin = thin;
     barChannel?.postMessage({ window: new URLSearchParams(location.search).get('window'), thin });
   }
-  const background = spaceTint(state.tint, systemDark.matches);
+  const dark = systemDark.matches;
+  const background = state.spaceTheme ? themeTint(state.spaceTheme, dark) : spaceTint(state.tint, dark);
   // A gradient Space: the window fades between its colours, top to bottom, as the sidebar does.
-  const gradient = state.tints && state.tints.length > 1 ? state.tints.map((c) => spaceTint(c, systemDark.matches)) : undefined;
+  const gradient = state.spaceTheme
+    ? themeFrameColors(state.spaceTheme, dark)
+    : state.tints && state.tints.length > 1
+      ? state.tints.map((c) => spaceTint(c, dark))
+      : undefined;
   // The top bar (topbar.ts), in the page's colour; the window buttons take its text colour. The
   // browser paints the card behind the bar in that colour too, which is all the bare bar (the
   // address in the sidebar) shows: there from the first frame, as the bar's own paint isn't.
   const { bg: topBarBackground, fg: topBarForeground } = topBarColors(lastState.siteColor);
-  const { topBarPeek: _peek, ...layout } = frameState;
-  const plain = { ...layout, background, topBar: barShown ?? TOP_BAR_HEIGHT, topBarForeground, topBarBackground };
-  void windowId.then((id) => {
-    if (!gradient) return chrome.flechaPrivate.setFrame(plain, id);
+  const { topBarPeek: _peek, ...rest } = layout;
+  const base = {
+    ...rest,
+    // A local request is already on, even if the background's frame hasn't arrived yet.
+    overlay: rest.overlay || localOverlays.size > 0,
+    background,
+    topBar: barShown ?? TOP_BAR_HEIGHT,
+    topBarForeground,
+    topBarBackground,
+  };
+  // The frame around the page gets the Space's texture too (a Zen theme's grain);
+  // without a theme the browser keeps its own fine grain. The raw state's theme,
+  // not the UI's derived spaceGrain: sendFrame sees lastState, not the shown one.
+  const grain = state.spaceTheme
+    ? { texture: state.spaceTheme.textureType ?? 'none', textureStrength: state.spaceTheme.texture ?? 0 }
+    : undefined;
+  const plain = grain ? { ...base, ...grain } : base;
+  void windowId.then(async (id) => {
     try {
-      return chrome.flechaPrivate.setFrame({ ...plain, gradient }, id);
+      await chrome.flechaPrivate.setFrame(gradient ? { ...plain, gradient } : plain, id);
     } catch {
-      // A browser from before gradients rejects the whole frame for that one field; the frame matters more.
-      return chrome.flechaPrivate.setFrame(plain, id);
+      // A browser from before this field rejects the whole frame for it; the frame matters more.
+      await chrome.flechaPrivate.setFrame(base, id).catch(() => undefined);
     }
   });
 }
@@ -124,6 +182,8 @@ const paletteListeners: Array<(mode: PaletteMode) => void> = [];
 const renameListeners: Array<(tabId: string) => void> = [];
 setupWindowUi({ rename: (tabId) => renameListeners.forEach((cb) => cb(tabId)), state: () => lastState });
 systemDark.addEventListener('change', () => lastState && emitState(lastState));
+// The Zen gradient depends on the sidebar's height, so it is rebuilt when the window resizes.
+addEventListener('resize', () => lastState?.spaceTheme && emitState(lastState));
 
 /** The home screen's input. In a window of its own it goes to that window's page, not the main one. */
 async function navigateFromHome(input: string) {
@@ -171,7 +231,12 @@ const api: FlechaApi = {
   switchSpace: cmd('switchSpace'),
   newSpace: cmd('newSpace'),
   updateSpace: cmd('updateSpace'),
-  setOverlay: cmd('setOverlay'),
+  setOverlay: (name, on) => {
+    if (on) localOverlays.add(String(name));
+    else localOverlays.delete(String(name));
+    cmd('setOverlay')(name, on);
+    applyFrame();
+  },
   onOpenSitePanel: (cb) => on('site-panel', cb),
   // The song card (nowPlaying.ts).
   onNowPlaying: (cb) => on('now-playing', cb),

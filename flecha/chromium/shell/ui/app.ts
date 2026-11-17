@@ -1,11 +1,12 @@
 import { devSuggestions } from './devCommands.js';
 import { HUGEICONS, ICONS, type IconName } from './icons.js';
 import { setupOnboarding } from './onboarding.js';
-import { spaceTint, DEFAULT_SPACE_COLOR } from '../lib/spaceTint';
+import { DEFAULT_SPACE_COLOR } from '../lib/spaceTint';
+import { themeGradient, themeInk, themeTint } from '../lib/zenTheme';
 import { isDark, luminance } from '../lib/topBar';
-import { SPACE_COLORS, SPACE_EMOJIS } from './spaceChoices.js';
-import { fieldColor, fieldPoint, nextStop, paintField, throttled } from './colorField.js';
-import type { DownloadInfo, DropTarget, ExtensionsView, FlechaApi, HistoryEntry, NowPlaying, PaletteMode, PeekState, PinnedNode, Space, TabInfo, UiState } from '../../shared/types';
+import { SPACE_EMOJIS } from './spaceChoices.js';
+import { ThemePicker } from './themePicker.js';
+import type { DownloadInfo, DropTarget, ExtensionsView, FlechaApi, HistoryEntry, NowPlaying, PaletteMode, PeekState, PinnedNode, Space, SpaceTheme, TabInfo, UiState } from '../../shared/types';
 
 declare global {
   interface Window {
@@ -156,16 +157,58 @@ function tintFromIcon(tile: HTMLElement, img: HTMLElement) {
 
 // ---- rendering ----------------------------------------------------------------
 
+/** What the sidebar's background was last painted with, so a state update doesn't repaint it. */
+const lastSpacePaint = { gradient: '', texture: '' };
+
+/** The picker's theme applied to the window before the saved state comes back (Zen applies it live). */
+function previewTheme(theme: SpaceTheme) {
+  const dark = matchMedia('(prefers-color-scheme: dark)').matches;
+  const gradient = themeGradient(theme, dark, 230, window.innerHeight);
+  const texture = `${theme.textureType}:${theme.texture}`;
+  document.documentElement.style.setProperty('--space-color', themeTint(theme, dark));
+  document.documentElement.style.setProperty('--space-gradient', gradient);
+  document.documentElement.style.setProperty('--space-noise', 'none');
+  document.documentElement.dataset.spaceTexture = theme.textureType;
+  document.documentElement.style.setProperty('--zen-grain-strength', String(theme.texture));
+  $('sidebar').dataset.ink = themeInk(theme, dark);
+  lastSpacePaint.gradient = gradient;
+  lastSpacePaint.texture = texture;
+}
+
 function render(s: UiState) {
   state = s;
   const space = s.spaces.find((sp) => sp.id === s.activeSpaceId) ?? s.spaces[0];
   const active = space.activeTabId ? s.tabs[space.activeTabId] : undefined;
   document.documentElement.style.setProperty('--space-color', s.tint);
-  // A gradient Space fades top to bottom, as the window's frame around the page does.
-  if (s.tints && s.tints.length > 1) document.documentElement.style.setProperty('--space-gradient', `linear-gradient(to bottom, ${s.tints.join(', ')})`);
-  else document.documentElement.style.removeProperty('--space-gradient');
+  // A Zen theme paints its own layered gradient and grain; a Space with plain colours fades
+  // between them top to bottom, as the window's frame around the page does.
+  if (s.spaceGradient) {
+    // The theme gradient is a long string; setting it again on every state change would parse it
+    // for nothing, so only a change of theme touches the CSS.
+    if (lastSpacePaint.gradient !== s.spaceGradient) {
+      lastSpacePaint.gradient = s.spaceGradient;
+      document.documentElement.style.setProperty('--space-gradient', s.spaceGradient);
+      document.documentElement.style.setProperty('--space-noise', 'none');
+    }
+    const texture = `${s.spaceGrain?.texture ?? 'none'}:${s.spaceGrain?.strength ?? 0}`;
+    if (lastSpacePaint.texture !== texture) {
+      lastSpacePaint.texture = texture;
+      document.documentElement.dataset.spaceTexture = s.spaceGrain?.texture ?? 'none';
+      document.documentElement.style.setProperty('--zen-grain-strength', String(s.spaceGrain?.strength ?? 0));
+    }
+  } else {
+    if (lastSpacePaint.gradient !== '') {
+      lastSpacePaint.gradient = '';
+      lastSpacePaint.texture = '';
+      document.documentElement.style.removeProperty('--space-noise');
+      delete document.documentElement.dataset.spaceTexture;
+      document.documentElement.style.removeProperty('--zen-grain-strength');
+    }
+    if (s.tints && s.tints.length > 1) document.documentElement.style.setProperty('--space-gradient', `linear-gradient(to bottom, ${s.tints.join(', ')})`);
+    else document.documentElement.style.removeProperty('--space-gradient');
+  }
   // The sidebar's text follows its own colour, which can be any colour, not the theme.
-  $('sidebar').dataset.ink = isDark(s.tint) ? 'light' : 'dark';
+  $('sidebar').dataset.ink = s.spaceInk ?? (isDark(s.tint) ? 'light' : 'dark');
   $('sidebar').toggleAttribute('data-bright', luminance(s.tint) > 0.85);
 
   ($('btn-back') as HTMLButtonElement).disabled = !s.nav.canGoBack;
@@ -945,7 +988,14 @@ function openSpaceEditor(spaceId: string) {
   archivePanel.hidden = true;
   toggleSitePanel(false);
   // The frame page is only as wide as the sidebar; it covers the window while the menu is up.
-  if (framedWindow) api.setOverlay?.('space-menu', true);
+  if (framedWindow) {
+    api.setOverlay?.('space-menu', true);
+    // A frame still at sidebar width swallows the clicks beyond it. Ask again once layout has
+    // settled; a setFrame() with the overlay already on is a no-op.
+    setTimeout(() => {
+      if (!spaceEditor.hidden) api.setOverlay?.('space-menu', true);
+    }, 150);
+  }
   const header = $('space-header');
   spaceEditor.style.top = `${Math.max(8, Math.round(header.getBoundingClientRect().top) - 10)}px`;
   header.classList.add('open');
@@ -959,6 +1009,8 @@ function openSpaceEditor(spaceId: string) {
 
 function closeSpaceEditor() {
   if (spaceEditor.hidden) return;
+  // Save the last colour change while the editor still knows which Space it was for.
+  themePicker?.flush();
   editingSpace = undefined;
   spaceEditor.hidden = true;
   const header = $('space-header');
@@ -967,138 +1019,30 @@ function closeSpaceEditor() {
   if (framedWindow) api.setOverlay?.('space-menu', false);
 }
 
-// ---- Space colours: presets, a field with up to three dots (a gradient), and the exact hex ----
+// ---- Space theme: Zen's workspace theme picker (a wheel of up to three dots, presets, custom colours, grain) ----
 
-/** Which of the Space's colours the presets, the field and the hex field change. */
-let colorIndex = 0;
-const colorField = $<HTMLCanvasElement>('space-color-field');
-const colorHex = $<HTMLInputElement>('space-color-hex');
-
-paintField(colorField);
-
-const spaceColorsOf = (space: Space) => (space.colors?.length ? space.colors : [space.color === DEFAULT_SPACE_COLOR ? spaceTint(DEFAULT_SPACE_COLOR, false) : space.color]);
-
-function setSpaceColor(color: string) {
-  const space = state?.spaces.find((s) => s.id === editingSpace);
-  if (!space) return;
-  const colors = [...spaceColorsOf(space)];
-  colors[Math.min(colorIndex, colors.length - 1)] = color;
-  api.updateSpace(space.id, { colors });
+let themePicker: ThemePicker | undefined;
+function spaceThemePicker() {
+  if (themePicker) return themePicker;
+  themePicker = new ThemePicker($('space-theme-picker'), {
+    // Paint the window at once while the pointer is still on the wheel; the save is throttled.
+    onChange: (theme) => {
+      if (!editingSpace) return;
+      previewTheme(theme);
+      api.updateSpace(editingSpace, { theme });
+    },
+    // Zen's three scheme buttons: the window's light/dark follows the system, or is pinned.
+    onScheme: (scheme) => api.setPreferences({ theme: scheme === 'auto' ? 'system' : scheme }),
+  });
+  $('space-color-reset').onclick = () => {
+    if (editingSpace) api.updateSpace(editingSpace, { color: DEFAULT_SPACE_COLOR });
+  };
+  return themePicker;
 }
 
-const presetSwatches = SPACE_COLORS.map(
-  (color) =>
-    h('button', {
-      class: 'swatch',
-      style: `--swatch: ${color}`,
-      title: color,
-      onclick: () => setSpaceColor(color),
-    }) as HTMLElement,
-);
-$('space-colors').replaceChildren(...presetSwatches);
-$('space-color-reset').onclick = () => {
-  colorIndex = 0;
-  if (editingSpace) api.updateSpace(editingSpace, { color: DEFAULT_SPACE_COLOR });
-};
-$('space-color-add').onclick = () => {
-  const space = state?.spaces.find((s) => s.id === editingSpace);
-  if (!space) return;
-  const colors = spaceColorsOf(space);
-  if (colors.length >= 3) return;
-  colorIndex = colors.length;
-  api.updateSpace(space.id, { colors: [...colors, nextStop(colors[colors.length - 1])] });
-};
-
-// Dragging a dot (or pressing the field) changes the selected colour: the dot follows the pointer at once, the Space a few times a second.
-const dragSend = throttled(setSpaceColor);
-colorField.parentElement!.addEventListener('pointerdown', (e) => {
-  const space = state?.spaces.find((s) => s.id === editingSpace);
-  if (!space) return;
-  const dot = (e.target as Element).closest<HTMLElement>('.color-dot');
-  if (dot) colorIndex = Number(dot.dataset.index);
-  const box = colorField.getBoundingClientRect();
-  const move = (ev: PointerEvent) => {
-    const x = Math.min(1, Math.max(0, (ev.clientX - box.left) / box.width));
-    const y = Math.min(1, Math.max(0, (ev.clientY - box.top) / box.height));
-    const color = fieldColor(x, y);
-    const shown = document.querySelector<HTMLElement>('#space-color-dots .color-dot.selected');
-    if (shown) Object.assign(shown.style, { left: `${x * 100}%`, top: `${y * 100}%` }), shown.style.setProperty('--dot', color);
-    dragSend.push(color);
-  };
-  const target = e.currentTarget as HTMLElement;
-  target.setPointerCapture(e.pointerId);
-  move(e);
-  target.addEventListener('pointermove', move);
-  const end = () => {
-    target.removeEventListener('pointermove', move);
-    dragSend.flush();
-  };
-  target.addEventListener('pointerup', end, { once: true });
-  target.addEventListener('pointercancel', end, { once: true });
-});
-colorHex.addEventListener('input', () => {
-  const value = colorHex.value.trim().replace(/^#?/, '#').toLowerCase();
-  if (/^#[0-9a-f]{6}$/.test(value)) setSpaceColor(value);
-});
-colorHex.addEventListener('keydown', (e) => e.key === 'Enter' && colorHex.blur());
-
-function renderSpaceColors(space: Space) {
-  const isDefault = space.color === DEFAULT_SPACE_COLOR;
-  const colors = spaceColorsOf(space);
-  colorIndex = Math.min(colorIndex, colors.length - 1);
-  const current = colors[colorIndex];
-  presetSwatches.forEach((swatch, i) => swatch.classList.toggle('selected', !isDefault && SPACE_COLORS[i] === current));
-  $('space-color-dots').replaceChildren(
-    ...colors.map((color, i) => {
-      const { x, y } = fieldPoint(color);
-      return h('span', { class: `color-dot${i === colorIndex ? ' selected' : ''}`, dataset: { index: String(i) }, style: `--dot: ${color}; left: ${x * 100}%; top: ${y * 100}%` });
-    }),
-  );
-  $('space-color-chips').replaceChildren(
-    ...colors.map((color, i) =>
-      h(
-        'button',
-        {
-          class: 'color-chip',
-          role: 'radio',
-          'aria-checked': String(i === colorIndex),
-          'aria-label': `Colour ${i + 1}: ${color}`,
-          style: `--swatch: ${color}`,
-          'aria-keyshortcuts': colors.length > 1 ? 'Delete' : undefined,
-          onclick: () => {
-            colorIndex = i;
-            renderSpaceColors(space);
-          },
-          // The keyboard's way to the remove mark.
-          onkeydown: (e: KeyboardEvent) => {
-            if ((e.key === 'Delete' || e.key === 'Backspace') && colors.length > 1) {
-              colorIndex = Math.max(0, i - 1);
-              api.updateSpace(space.id, { colors: colors.filter((_, j) => j !== i) });
-            }
-          },
-        },
-        colors.length > 1
-          ? h(
-              'span',
-              {
-                class: 'remove',
-                'aria-label': 'Remove this colour',
-                title: 'Remove this colour',
-                onclick: (e: Event) => {
-                  e.stopPropagation();
-                  colorIndex = Math.max(0, i - 1);
-                  api.updateSpace(space.id, { colors: colors.filter((_, j) => j !== i) });
-                },
-              },
-              icon('close'),
-            )
-          : null,
-      ),
-    ),
-  );
-  $('space-color-add').hidden = colors.length >= 3;
-  if (document.activeElement !== colorHex) colorHex.value = current.slice(1);
-  $<HTMLButtonElement>('space-color-reset').disabled = isDefault;
+function renderSpaceTheme(space: Space) {
+  spaceThemePicker().setSpace(space, state?.theme ?? 'system');
+  $<HTMLButtonElement>('space-color-reset').disabled = !space.theme && space.color === DEFAULT_SPACE_COLOR;
 }
 
 function renderSpaceEditor() {
@@ -1112,7 +1056,7 @@ function renderSpaceEditor() {
       h('button', { class: `emoji${space.emoji === emoji ? ' selected' : ''}`, onclick: () => api.updateSpace(space.id, { emoji }) }, emoji),
     ),
   );
-  renderSpaceColors(space);
+  renderSpaceTheme(space);
   $<HTMLSelectElement>('space-profile').value = space.isolated ? 'separate' : 'shared';
   // Every installed extension; the ones pinned everywhere show as pinned and stay so here.
   const pinnedHere = space.pinnedExtensions ?? [];

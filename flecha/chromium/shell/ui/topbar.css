@@ -326,3 +326,51 @@ button:focus-visible {
     background-size: 100% 100%, 100% 100%;
   }
 }
+
+/* The Space's grain over the bar too, not just the sidebar (Zen paints its whole chrome). */
+#bar::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  z-index: 0;
+  border-radius: inherit;
+  pointer-events: none;
+  background-image: var(--zen-grain-texture, none);
+  background-size: var(--zen-grain-tile) var(--zen-grain-tile);
+  image-rendering: var(--zen-grain-rendering, auto);
+  opacity: calc(var(--zen-grain-strength, 0) * var(--zen-grain-alpha, 0));
+  transition: opacity 0.2s ease-in-out;
+}
+
+#bar > * {
+  position: relative;
+  z-index: 1;
+}
+
+html[data-space-texture='grain'] {
+  --zen-grain-texture: url('grain-bg.png');
+  --zen-grain-tile: 155px;
+  --zen-grain-alpha: 0.7;
+  --zen-grain-rendering: pixelated;
+}
+
+html[data-space-texture='sand'] {
+  --zen-grain-texture: url('sand-bg.png');
+  --zen-grain-tile: 100px;
+  --zen-grain-alpha: 0.3;
+  --zen-grain-rendering: auto;
+}
+
+html[data-space-texture='denim'] {
+  --zen-grain-texture: url('denim-bg.png');
+  --zen-grain-tile: 100px;
+  --zen-grain-alpha: 0.85;
+  --zen-grain-rendering: auto;
+}
+
+html[data-space-texture='tweed'] {
+  --zen-grain-texture: image-set(url('tweed-bg-1x.png') 1x, url('tweed-bg-1.5x.png') 1.5x, url('tweed-bg.png') 2x);
+  --zen-grain-tile: 100px;
+  --zen-grain-alpha: 0.85;
+  --zen-grain-rendering: auto;
+}

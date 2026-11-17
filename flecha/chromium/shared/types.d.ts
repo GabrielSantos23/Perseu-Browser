@@ -34,6 +34,34 @@ export type PinnedNode =
   | { kind: 'tab'; tabId: string }
   | { kind: 'folder'; id: string; name: string; open: boolean; children: PinnedNode[] };
 
+/**
+ * One colour in a Space theme, as Zen's workspace gradient stores it: an rgb triple for a dot placed in
+ * the picker (or a CSS colour for a custom colour), plus the dot's place in the wheel.
+ */
+export interface ThemeColor {
+  c: [number, number, number] | string;
+  isCustom?: boolean;
+  /** The colour harmony the dots were laid out with: floating, analogous, triadic… */
+  algorithm?: string;
+  isPrimary?: boolean;
+  lightness?: number;
+  /** The dot's place in the picker as fractions of its width and height (0–1), so it survives a resize. */
+  position?: { x: number; y: number };
+  /** explicit-lightness (hue circle) or explicit-black-white (the greys). */
+  type?: string;
+}
+
+/** A Space's window theme, as Zen's workspace theme: a gradient of up to three dots, and grain over it. */
+export interface SpaceTheme {
+  type: 'gradient';
+  gradientColors: ThemeColor[];
+  /** How strongly the colour shows, 0–1 (Zen's 0.25–0.8 range). */
+  opacity: number;
+  /** Grain strength, 0–1. */
+  texture: number;
+  textureType: 'none' | 'grain' | 'sand' | 'denim' | 'tweed' | string;
+}
+
 export interface Space {
   id: string;
   name: string;
@@ -41,6 +69,8 @@ export interface Space {
   color: string;
   /** Two or three colours the window fades between, top to bottom; `color` is the first. */
   colors?: string[];
+  /** The Space's Zen theme; `color`/`colors` are kept in step for the older surfaces. */
+  theme?: SpaceTheme;
   favorites: string[];
   pinned: PinnedNode[];
   today: string[];
@@ -195,6 +225,14 @@ export interface UiState extends BrowserState {
   tint: string;
   /** With a gradient Space, all of its colours (tint is the first), darkened the same way. */
   tints?: string[];
+  /** The active Space's Zen theme, if it has one. */
+  spaceTheme?: SpaceTheme;
+  /** The theme's sidebar background: Zen's layered gradient as a CSS background-image. */
+  spaceGradient?: string;
+  /** The ink the theme wants for the sidebar's text. */
+  spaceInk?: 'light' | 'dark';
+  /** The theme's grain, painted over the sidebar. */
+  spaceGrain?: { texture: string; strength: number };
   /** docked: always there. hidden: a hover strip at the left edge. floating: shown over the page until the mouse leaves. */
   sidebarMode: 'docked' | 'hidden' | 'floating';
   /** Set when the active tab is on one of the configured environments. */
@@ -497,7 +535,7 @@ export interface FlechaApi {
   stop(): void;
   switchSpace(spaceId: string): void;
   newSpace(): void;
-  updateSpace(spaceId: string, patch: { name?: string; emoji?: string; color?: string; colors?: string[]; pinnedExtensions?: string[] }): void;
+  updateSpace(spaceId: string, patch: { name?: string; emoji?: string; color?: string; colors?: string[]; theme?: SpaceTheme; pinnedExtensions?: string[] }): void;
   /** Lets the frame page cover the whole window while a menu of its own is open (Chromium build only). */
   setOverlay?(name: string, on: boolean): void;
   /** The top bar asked for the site panel under its button (`rect` in window coordinates). */

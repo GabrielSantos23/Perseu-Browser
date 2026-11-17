@@ -182,6 +182,7 @@ async function start() {
       // The light tint; pages darken it themselves, since only they know the system appearance.
       tint: store.activeSpace.color,
       tints: store.activeSpace.colors,
+      spaceTheme: store.activeSpace.theme,
       sidebarMode: store.state.sidebarVisible ? 'docked' : frame.sidebarPeek ? 'floating' : 'hidden',
       environment: store.activeTab ? describeEnvironment(store.activeTab.url, store.state.environments) : undefined,
       localServers: features?.localServers() ?? [],
@@ -584,7 +585,12 @@ async function start() {
     rememberLive();
     // The window closing (quitting the browser, say) isn't closing its tabs: they and the
     // selected one must come back as they were, not unselected or archived.
-    if (info?.isWindowClosing) return;
+    if (info?.isWindowClosing) {
+      // The next save would come after the browser has stopped: write the state out now, so
+      // the tab selected on a website is the one that opens next time.
+      store.saveNow();
+      return;
+    }
     store.closeTab(id);
   }
 
@@ -659,8 +665,18 @@ async function start() {
   function spaceMenu(spaceId: string): MenuEntry<MenuRun>[] | undefined {
     const space = store.state.spaces.find((s) => s.id === spaceId);
     if (!space || incognito) return undefined;
+    const scheme = store.state.theme ?? 'system';
     return [
       { label: 'Edit Space…', hot: true, run: does('editSpace', spaceId) },
+      { label: 'Change Theme…', run: does('editSpace', spaceId) },
+      {
+        label: 'Theme',
+        submenu: [
+          { label: 'Auto (follow the system)', checked: scheme === 'system', run: does('setPreferences', { theme: 'system' }) },
+          { label: 'Light', checked: scheme === 'light', run: does('setPreferences', { theme: 'light' }) },
+          { label: 'Dark', checked: scheme === 'dark', run: does('setPreferences', { theme: 'dark' }) },
+        ],
+      },
       { label: 'New Folder', icon: 'folder' as const, run: does('newFolder') },
       { label: 'New Tab', icon: 'add' as const, run: does('newHomeTab', spaceId) },
       SEPARATOR,
@@ -839,7 +855,7 @@ async function start() {
       void unload([...live.keys()].filter((t) => !keep.has(t))).then(sendState);
     },
     closeTabs: (id: string, which: string) => void unload(store.closeTodayTabs(id, which === 'others' ? 'others' : 'below')),
-    updateSpace: (id: string, patch: { name?: string; emoji?: string; color?: string; colors?: string[]; pinnedExtensions?: string[] }) => store.updateSpace(id, patch ?? {}),
+    updateSpace: (id: string, patch: { name?: string; emoji?: string; color?: string; colors?: string[]; theme?: import('../shared/types').SpaceTheme; pinnedExtensions?: string[] }) => store.updateSpace(id, patch ?? {}),
     // Its open tabs reopen in the other partition (sync() finds them in the wrong one).
     setSpaceIsolated: spacesOnly((id: string, isolated: boolean) => {
       if (!canIsolate) return broadcast('flash', 'Separate cookies aren’t in this build yet');
