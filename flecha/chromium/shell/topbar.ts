@@ -4,7 +4,7 @@ import './noPageMenu';
 import './flechaApi';
 import { cmd } from './client';
 import { ICONS, type IconName } from './ui/icons';
-import { topBarColors } from './lib/topBar';
+import { TOP_BAR_HEIGHT, topBarColors } from './lib/topBar';
 import type { ExtensionsView, UiState } from '../shared/types';
 
 const api = window.flecha;
@@ -105,10 +105,13 @@ api.onState((s) => {
 // nothing and is no drag ground: the browser leaves the page its own card behind it
 // (flecha_frame_host.h TopBarIsThin). The window's frame page says when (flechaApi.ts).
 const barWindow = new URLSearchParams(location.search).get('window');
-let barThin = innerHeight < 34;
+// Start whole: a bar that first appears at the thin edge strip gets a resize, which hides it.
+// Starting from its own height could keep it hidden after it has grown (an incognito page
+// loads its state later, so it missed the frame's "not thin" word and stayed blank).
+let barThin = false;
 // The word can come a frame before the browser has resized the bar: drawn whole while still the
 // thin bar's height, it would cover the gap above for that frame. Whole only at the whole height.
-const applyThin = () => document.documentElement.toggleAttribute('data-thin', barThin || innerHeight > 34);
+const applyThin = () => document.documentElement.toggleAttribute('data-thin', barThin || Math.round(innerHeight) !== TOP_BAR_HEIGHT);
 applyThin();
 addEventListener('resize', applyThin);
 new BroadcastChannel('perseu-topbar').onmessage = (e: MessageEvent<{ window: string; thin: boolean }>) => {
