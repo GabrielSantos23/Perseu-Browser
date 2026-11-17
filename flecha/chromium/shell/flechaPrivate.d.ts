@@ -7,11 +7,11 @@
  * Absent in stock Chromium; the shell then falls back to the side panel.
  *
  * Layout, the same numbers as the Electron spike's Browser.layout():
- *  - sidebar 'docked':   frame view = left strip SIDEBAR (260) wide; page area = x 260, y 8,
+ *  - sidebar 'docked':   frame view = left strip SIDEBAR (230) wide; page area = x 230, y 8,
  *                        to 8 from the right and bottom edges. Traffic lights shown at (16, 18).
  *  - sidebar 'hidden':   frame view = left strip EDGE (8) wide, for the hover edge; page area
  *                        x 8. Traffic lights hidden.
- *  - sidebar 'floating': frame view = FLOAT_MARGIN + SIDEBAR + FLOAT_SHADOW (10 + 260 + 28)
+ *  - sidebar 'floating': frame view = FLOAT_MARGIN + SIDEBAR + FLOAT_SHADOW (10 + 230 + 28)
  *                        wide, over the page; page area as 'hidden'. Traffic lights shown at
  *                        (16 + 10, 18 + 10).
  *  - overlay: true:      frame view covers the whole window (command bar, Peek, tour, tab
@@ -33,6 +33,12 @@ declare namespace chrome.flechaPrivate {
     topBar?: number;
     /** The top bar's text colour as #rrggbb, for the window buttons' symbols. */
     topBarForeground?: string;
+    /** The top bar's colour as #rrggbb: the browser paints the card behind the bar in it. */
+    topBarBackground?: string;
+    /** The Space's grain texture: none, grain, sand, denim or tweed. Absent keeps the frame's own fine grain. */
+    texture?: string;
+    /** The texture's strength, 0..1. */
+    textureStrength?: number;
   }
 
   /** Lays out a window's frame. Applies to every normal window when windowId is omitted. */
@@ -87,9 +93,13 @@ declare namespace chrome.flechaPrivate {
   function prepareUpdate(update: { version: string; url: string; sha256: string }): Promise<'ready' | 'current' | 'unsupported' | 'busy' | 'failed'>;
   /** Installs what prepareUpdate() got ready and restarts. */
   function installUpdate(): Promise<'restarting' | 'none' | 'busy' | 'failed'>;
-  function getMedia(tabId: number): Promise<{ playing: boolean; title: string; artist: string; album: string; canNext: boolean; canPrevious: boolean } | undefined>;
+  function getMedia(tabId: number): Promise<{ playing: boolean; title: string; artist: string; album: string; canNext: boolean; canPrevious: boolean; position: number; duration: number } | undefined>;
   /** Plays, pauses or skips a tab's media, like Chromium's global media controls. */
   function mediaAction(tabId: number, action: 'play' | 'pause' | 'next' | 'previous'): Promise<void>;
+  /** Jumps the tab's media to this many seconds in. */
+  function seekMedia(tabId: number, seconds: number): Promise<void>;
+  /** The browser window's size, in DIPs. */
+  function getWindowSize(): Promise<{ width: number; height: number }>;
 
   /**
    * Split views (patch 0019). In Flecha windows Chromium's split has none of its own chrome:
@@ -208,6 +218,8 @@ declare namespace chrome.flechaPrivate {
   function setPeekTabs(tabIds: number[]): Promise<void>;
   /** A window's Peek opened, moved, navigated or closed (`peek` undefined). */
   const onPeekChanged: chrome.events.Event<(windowId: number, peek?: PeekState) => void>;
+  /** The frame page's -webkit-app-region ground was right-clicked: the shell shows its own Space menu. */
+  const onFrameContextMenu: chrome.events.Event<(windowId: number, x: number, y: number) => void>;
 
   /**
    * Developer Tools for a tab (patch 0027), docked or in their own window as last time.

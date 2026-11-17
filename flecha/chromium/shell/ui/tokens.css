@@ -9,6 +9,14 @@
   font-display: swap;
 }
 
+/* Geist, only for the home's wordmark (the home sky comes with it). */
+@font-face {
+  font-family: 'Geist';
+  src: url('Geist-SemiBold.woff2') format('woff2');
+  font-weight: 600;
+  font-display: swap;
+}
+
 :root {
   color-scheme: light dark;
 
@@ -77,6 +85,23 @@
 /* Menus and panels look like Windows 11's (WinUI MenuFlyout): neutral, not the Space tint.
    Light and dark follow Flecha's theme setting, which pages see as prefers-color-scheme. */
 :root {
+  /* Perseu's window chrome, from the website's product window: a near-black
+     wash with a lit hairline rim. The components copied from it — the command
+     bar, the menus, the Space editor, the tab card, the home — use these. */
+  --perseu-text: #f4f4f6;
+  --perseu-muted: rgb(244 244 246 / 0.7);
+  --perseu-faint: rgb(244 244 246 / 0.46);
+  --perseu-sheet: rgb(30 30 33 / 0.98);
+  --perseu-sheet-menu: rgb(34 34 37 / 0.99);
+  --perseu-ring: rgb(255 255 255 / 0.1);
+  --perseu-band: rgb(255 255 255 / 0.08);
+  --perseu-band-hover: rgb(255 255 255 / 0.16);
+  --perseu-danger: #f87171;
+  --perseu-selection: rgb(47 111 237 / 0.92);
+  --perseu-drop: 0 24px 60px -20px rgb(0 0 0 / 0.7);
+  --perseu-drop-deep: 0 30px 80px -20px rgb(0 0 0 / 0.7);
+  --ease-strong: cubic-bezier(0.16, 1, 0.3, 1);
+
   --menu-bg: #f9f9f9;
   --menu-border: rgba(0, 0, 0, 0.1);
   --menu-text: #1a1a1a;

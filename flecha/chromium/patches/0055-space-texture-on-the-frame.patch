@@ -1,0 +1,149 @@
+--- a/chrome/browser/extensions/api/flecha_private/flecha_private_api.cc
++++ b/chrome/browser/extensions/api/flecha_private/flecha_private_api.cc
+@@ -202,6 +202,13 @@
+       return RespondNow(Error(kBadColorError));
+     }
+   }
++  if (params->state.texture) {
++    state.texture = *params->state.texture;
++  }
++  if (params->state.texture_strength) {
++    state.texture_strength =
++        std::clamp(*params->state.texture_strength, 0.0, 1.0);
++  }
+ 
+   if (params->window_id) {
+     FlechaFrameHost* host = HostForWindow(*params->window_id, browser_context());
+--- a/chrome/browser/flecha/flecha_frame_host.h
++++ b/chrome/browser/flecha/flecha_frame_host.h
+@@ -107,6 +107,9 @@
+   std::optional<SkColor> top_bar_foreground;
+   // The top bar's colour: the card behind the bar is painted in it.
+   std::optional<SkColor> top_bar_background;
++  // The Space's grain texture (a shell PNG name), and its 0..1 strength.
++  std::optional<std::string> texture;
++  double texture_strength = 0;
+ 
+   bool operator==(const FlechaFrameState&) const = default;
+ 
+--- a/chrome/browser/ui/views/frame/flecha_frame_view.cc
++++ b/chrome/browser/ui/views/frame/flecha_frame_view.cc
+@@ -4,10 +4,18 @@
+ 
+ #include "chrome/browser/ui/views/frame/flecha_frame_view.h"
+ 
++#include <cmath>
+ #include <set>
+-
++#include <string>
++
++#include "base/containers/flat_map.h"
++#include "base/containers/span.h"
++#include "base/files/file_util.h"
+ #include "base/memory/raw_ptr.h"
+ #include "base/no_destructor.h"
++#include "base/path_service.h"
++#include "chrome/common/chrome_paths.h"
++#include "ui/gfx/image/image.h"
+ #include "content/public/browser/render_widget_host_view.h"
+ #include "ui/aura/window.h"
+ #include "ui/native_theme/native_theme.h"
+@@ -133,6 +141,36 @@
+   return *grain;
+ }
+ 
++// The Space's grain texture, from the shell's own PNGs (ui/*-bg.png). Only the
++// textures the picker offers; the frame keeps its own grain without a texture.
++const gfx::ImageSkia* SpaceTexture(const std::string& name) {
++  if (name != "grain" && name != "sand" && name != "denim" &&
++      name != "tweed") {
++    return nullptr;
++  }
++  static base::NoDestructor<base::flat_map<std::string, gfx::ImageSkia>> cache;
++  auto it = cache->find(name);
++  if (it != cache->end()) {
++    return it->second.isNull() ? nullptr : &it->second;
++  }
++  gfx::ImageSkia texture;
++  base::FilePath dir;
++  if (base::PathService::Get(chrome::DIR_RESOURCES, &dir)) {
++    const base::FilePath path =
++        dir.AppendASCII("flecha-shell").AppendASCII(name + "-bg.png");
++    std::string bytes;
++    if (base::ReadFileToString(path, &bytes)) {
++      gfx::Image decoded =
++          gfx::Image::CreateFrom1xPNGBytes(base::as_byte_span(bytes));
++      if (!decoded.IsEmpty()) {
++        texture = decoded.AsImageSkia();
++      }
++    }
++  }
++  auto result = cache->emplace(name, std::move(texture));
++  return result.first->second.isNull() ? nullptr : &result.first->second;
++}
++
+ class FlechaFrameBackgroundView : public views::View {
+   METADATA_HEADER(FlechaFrameBackgroundView, views::View)
+ 
+@@ -172,7 +210,7 @@
+     } else {
+       canvas->DrawColor(state_.background);
+     }
+-    canvas->TileImageInt(FrameGrain(), 0, 0, view->width(), view->height());
++    PaintSpaceTexture(canvas, view);
+     gfx::Rect page = view->GetLocalBounds();
+     page.Inset(view->GetInsets());
+     // A page area that fills the window (fullscreen, sidebar hidden) has no
+@@ -222,6 +260,38 @@
+   }
+ 
+  private:
++  // The Space's texture over the window's colour: the shell's PNG tiled at the
++  // same size and strength as its CSS grain. No theme keeps the frame's own
++  // fine grain; a theme with no texture paints none.
++  void PaintSpaceTexture(gfx::Canvas* canvas, views::View* view) const {
++    if (!state_.texture) {
++      canvas->TileImageInt(FrameGrain(), 0, 0, view->width(), view->height());
++      return;
++    }
++    if (*state_.texture == "none" || state_.texture_strength <= 0) {
++      return;
++    }
++    const gfx::ImageSkia* texture = SpaceTexture(*state_.texture);
++    if (!texture) {
++      return;
++    }
++    // Zen's grain tile, and its opacity in the picker's CSS (styles.css).
++    const bool grain = *state_.texture == "grain";
++    const int tile = grain ? 155 : 100;
++    const double alpha =
++        grain ? 0.7 : (*state_.texture == "sand" ? 0.3 : 0.85);
++    const double strength = std::clamp(state_.texture_strength, 0.0, 1.0);
++    canvas->SaveLayerAlpha(static_cast<uint8_t>(
++        std::lround(std::clamp(255.0 * alpha * strength, 0.0, 255.0))));
++    for (int y = 0; y < view->height(); y += tile) {
++      for (int x = 0; x < view->width(); x += tile) {
++        canvas->DrawImageInt(*texture, 0, 0, texture->width(),
++                             texture->height(), x, y, tile, tile, false);
++      }
++    }
++    canvas->Restore();
++  }
++
+   const FlechaFrameState state_;
+ };
+ 
+--- a/chrome/common/extensions/api/flecha_private.idl
++++ b/chrome/common/extensions/api/flecha_private.idl
+@@ -60,6 +60,11 @@
+     // The top bar's colour as #rrggbb: the browser paints the card behind the
+     // bar in it, so a see-through bar shows it from the first frame.
+     DOMString? topBarBackground;
++    // The Space's grain texture: none, grain, sand, denim or tweed. Absent
++    // keeps the frame's own fine grain.
++    DOMString? texture;
++    // The texture's strength, 0..1.
++    double? textureStrength;
+   };
+ 
+   // A button of the sidebar's song card.

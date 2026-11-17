@@ -54,7 +54,7 @@
 +// browser views (chrome/browser/ui/views/frame/flecha_frame_view.h).
 +
 +// The spike's layout constants.
-+inline constexpr int kFlechaSidebarWidth = 260;
++inline constexpr int kFlechaSidebarWidth = 230;
 +// With the sidebar hidden, this strip at the left edge brings it back on hover.
 +inline constexpr int kFlechaEdgeWidth = 8;
 +// The floating sidebar's inset from the window edge, and the room on its right

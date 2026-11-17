@@ -29,7 +29,9 @@
   display: none;
 }
 
-[data-surface='newtab'] #empty-state {
+/* `body` outranks styles.css's body[data-sidebar='hidden'|'floating'] #empty-state, whose 8px
+   left inset would bare the black page beside the sky. */
+[data-surface='newtab'] body #empty-state {
   inset: 0;
   border-radius: 0;
   box-shadow: none;
@@ -58,7 +60,7 @@
 /* The command bar drops down inside the sidebar, the width of the panel. */
 [data-surface='panel'] #palette {
   padding: 8px;
-  background: rgba(7, 18, 33, 0.12);
+  background: rgb(6 10 18 / 0.3);
 }
 
 [data-surface='panel'] .palette-box {
@@ -82,40 +84,60 @@
   inset: 0;
   z-index: 1000;
   outline: none;
+  /* Over the sidebar's drag ground, clicks must reach the layer (to close the menu), not
+     move the window or ask the browser for another menu. */
+  -webkit-app-region: no-drag;
 }
 
-/* Windows 11's context menu; the colours are in tokens.css. */
+/* The context menu in Perseu's own design (the website's space menu): the
+   sheet's near-black glass with a lit hairline rim, band-filled hover rows and
+   the danger in its own red. Sizes stay Flecha's. */
 .shell-menu {
   position: fixed;
   min-width: 180px;
   max-height: calc(100vh - 8px);
   overflow-y: auto;
-  padding: 4px 0;
-  border: 1px solid var(--menu-border);
-  border-radius: 8px;
-  background: var(--menu-bg);
-  box-shadow: var(--menu-shadow);
-  color: var(--menu-text);
-  font: 400 14px / 20px var(--menu-font);
+  padding: 5px 0;
+  border: 0;
+  border-radius: 12px;
+  background: var(--perseu-sheet-menu);
+  box-shadow: inset 0 0 0 1px var(--perseu-ring), var(--perseu-drop);
+  color: var(--perseu-text);
+  font: 400 13px / 18px var(--font);
 }
 
 .shell-menu-item {
   position: relative;
-  display: block;
+  display: flex;
+  align-items: center;
+  gap: 8px;
   width: calc(100% - 8px);
-  min-height: 32px;
+  min-height: 30px;
   margin: 0 4px;
-  padding: 6px 12px;
-  border-radius: 4px;
+  padding: 6px 10px;
+  border-radius: 7px;
   text-align: left;
   white-space: pre;
   color: inherit;
+  font-size: 13px;
   cursor: default;
+  transition: background-color 150ms var(--ease);
+}
+
+.shell-menu-icon {
+  flex: none;
+  width: 13px;
+  height: 13px;
+  color: var(--perseu-muted);
+}
+
+.shell-menu-item:has(.shell-menu-keys) {
+  justify-content: space-between;
 }
 
 .shell-menu-item.active,
 .shell-menu-item.open {
-  background: var(--menu-hover);
+  background: rgb(255 255 255 / 0.08);
   outline: none;
 }
 
@@ -137,7 +159,12 @@
 }
 
 .shell-menu-item:disabled {
-  color: var(--menu-disabled);
+  color: var(--perseu-faint);
+}
+
+/* What undoes something, in Perseu's own red. */
+.shell-menu-item.danger {
+  color: var(--perseu-danger);
 }
 
 .shell-menu-item.checkable {
@@ -163,13 +190,13 @@
 }
 
 .shell-menu-keys {
-  opacity: 0.65;
+  opacity: 0.46;
 }
 
 .shell-menu-separator {
   height: 1px;
   margin: 4px 0;
-  background: var(--menu-line);
+  background: rgb(255 255 255 / 0.1);
 }
 
 /* ---- questions --------------------------------------------------------------- */
@@ -276,13 +303,24 @@
   text-align: center;
 }
 
+/* On the home's night sky, the notice sits under the field, in white. */
+#home-incognito {
+  position: absolute;
+  top: calc(var(--top) + var(--mh) + 52px + 42px + 28px);
+  left: 50%;
+  translate: -50% 0;
+  z-index: 1;
+  color: #fff;
+}
+
 #home-incognito strong {
   display: inline-flex;
   align-items: center;
   gap: 8px;
   font-size: 16px;
   font-weight: 600;
-  color: var(--text);
+  color: #fff;
+  text-shadow: 0 1px 18px rgb(2 8 24 / 0.4);
 }
 
 #home-incognito svg {
@@ -295,7 +333,8 @@
   margin: 0;
   font-size: 13px;
   line-height: 1.45;
-  color: var(--text-2);
+  color: rgb(255 255 255 / 0.72);
+  text-shadow: 0 1px 18px rgb(2 8 24 / 0.4);
 }
 
 [data-incognito] #space-incognito {

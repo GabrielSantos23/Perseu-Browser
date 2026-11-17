@@ -22,7 +22,9 @@ function copyStatic() {
   const now = Date.now();
   manifest.version = `0.1.${Math.floor(now / 864e5) - 19723}.${Math.floor((now % 864e5) / 6e4)}`;
   fs.writeFileSync(path.join(out, 'manifest.json'), JSON.stringify(manifest, null, 2));
-  for (const f of fs.readdirSync(ui)) if (f.endsWith(".css") || f.endsWith(".png") || f.endsWith(".webp")) fs.copyFileSync(path.join(ui, f), path.join(out, f));
+  for (const f of fs.readdirSync(ui)) if (f.endsWith(".css") || f.endsWith(".png") || f.endsWith(".webp") || f.endsWith(".woff2")) fs.copyFileSync(path.join(ui, f), path.join(out, f));
+  // The home's night sky (website public/sky).
+  fs.cpSync(path.join(ui, 'sky'), path.join(out, 'sky'), { recursive: true });
   fs.copyFileSync(
     path.join(root, 'node_modules/@fontsource-variable/jetbrains-mono/files/jetbrains-mono-latin-wght-normal.woff2'),
     path.join(out, 'fonts/jetbrains-mono.woff2'),

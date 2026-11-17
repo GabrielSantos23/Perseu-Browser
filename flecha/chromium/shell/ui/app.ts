@@ -1,11 +1,12 @@
 import { devSuggestions } from './devCommands.js';
-import { ICONS, type IconName } from './icons.js';
+import { HUGEICONS, ICONS, type IconName } from './icons.js';
 import { setupOnboarding } from './onboarding.js';
-import { spaceTint, DEFAULT_SPACE_COLOR } from '../lib/spaceTint';
+import { DEFAULT_SPACE_COLOR } from '../lib/spaceTint';
+import { themeGradient, themeInk, themeTint } from '../lib/zenTheme';
 import { isDark, luminance } from '../lib/topBar';
-import { SPACE_COLORS, SPACE_EMOJIS } from './spaceChoices.js';
-import { fieldColor, fieldPoint, nextStop, paintField, throttled } from './colorField.js';
-import type { DownloadInfo, DropTarget, ExtensionsView, FlechaApi, HistoryEntry, NowPlaying, PaletteMode, PeekState, PinnedNode, Space, TabInfo, UiState } from '../../shared/types';
+import { SPACE_EMOJIS } from './spaceChoices.js';
+import { ThemePicker } from './themePicker.js';
+import type { DownloadInfo, DropTarget, ExtensionsView, FlechaApi, HistoryEntry, NowPlaying, PaletteMode, PeekState, PinnedNode, Space, SpaceTheme, TabInfo, UiState } from '../../shared/types';
 
 declare global {
   interface Window {
@@ -39,10 +40,10 @@ function h(tag: string, props: Props = {}, ...children: Array<Node | string | nu
   return el;
 }
 
-function svg(path: string) {
+function svg(path: string, viewBox = '0 0 16 16', inner = false) {
   const el = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
-  el.setAttribute('viewBox', '0 0 16 16');
-  el.innerHTML = `<path d="${path}"/>`;
+  el.setAttribute('viewBox', viewBox);
+  el.innerHTML = inner ? path : `<path d="${path}"/>`;
   return el;
 }
 
@@ -50,8 +51,17 @@ function icon(name: IconName) {
   return svg(ICONS[name]);
 }
 
+/** Perseu's own icon set (icons.ts HUGEICONS), drawn on the 24×24 grid. */
+function hugeIcon(name: keyof typeof HUGEICONS) {
+  return svg(HUGEICONS[name], '0 0 24 24', true);
+}
+
 // Static markup marks icons as <i data-icon="name">; swap them for the shared SVGs.
-for (const el of document.querySelectorAll<HTMLElement>('i[data-icon]')) el.replaceWith(icon(el.dataset.icon as IconName));
+// `huge:search` names Perseu's own set instead.
+for (const el of document.querySelectorAll<HTMLElement>('i[data-icon]')) {
+  const name = el.dataset.icon ?? '';
+  el.replaceWith(name.startsWith('huge:') ? hugeIcon(name.slice(5) as keyof typeof HUGEICONS) : icon(name as IconName));
+}
 
 function host(url: string) {
   try {
@@ -147,22 +157,70 @@ function tintFromIcon(tile: HTMLElement, img: HTMLElement) {
 
 // ---- rendering ----------------------------------------------------------------
 
+/** What the sidebar's background was last painted with, so a state update doesn't repaint it. */
+const lastSpacePaint = { gradient: '', texture: '' };
+
+/** The picker's theme applied to the window before the saved state comes back (Zen applies it live). */
+function previewTheme(theme: SpaceTheme) {
+  const dark = matchMedia('(prefers-color-scheme: dark)').matches;
+  const gradient = themeGradient(theme, dark, 230, window.innerHeight);
+  const texture = `${theme.textureType}:${theme.texture}`;
+  document.documentElement.style.setProperty('--space-color', themeTint(theme, dark));
+  document.documentElement.style.setProperty('--space-gradient', gradient);
+  document.documentElement.style.setProperty('--space-noise', 'none');
+  document.documentElement.dataset.spaceTexture = theme.textureType;
+  document.documentElement.style.setProperty('--zen-grain-strength', String(theme.texture));
+  $('sidebar').dataset.ink = themeInk(theme, dark);
+  lastSpacePaint.gradient = gradient;
+  lastSpacePaint.texture = texture;
+}
+
 function render(s: UiState) {
   state = s;
   const space = s.spaces.find((sp) => sp.id === s.activeSpaceId) ?? s.spaces[0];
   const active = space.activeTabId ? s.tabs[space.activeTabId] : undefined;
   document.documentElement.style.setProperty('--space-color', s.tint);
-  // A gradient Space fades top to bottom, as the window's frame around the page does.
-  if (s.tints && s.tints.length > 1) document.documentElement.style.setProperty('--space-gradient', `linear-gradient(to bottom, ${s.tints.join(', ')})`);
-  else document.documentElement.style.removeProperty('--space-gradient');
+  // A Zen theme paints its own layered gradient and grain; a Space with plain colours fades
+  // between them top to bottom, as the window's frame around the page does.
+  if (s.spaceGradient) {
+    // The theme gradient is a long string; setting it again on every state change would parse it
+    // for nothing, so only a change of theme touches the CSS.
+    if (lastSpacePaint.gradient !== s.spaceGradient) {
+      lastSpacePaint.gradient = s.spaceGradient;
+      document.documentElement.style.setProperty('--space-gradient', s.spaceGradient);
+      document.documentElement.style.setProperty('--space-noise', 'none');
+    }
+    const texture = `${s.spaceGrain?.texture ?? 'none'}:${s.spaceGrain?.strength ?? 0}`;
+    if (lastSpacePaint.texture !== texture) {
+      lastSpacePaint.texture = texture;
+      document.documentElement.dataset.spaceTexture = s.spaceGrain?.texture ?? 'none';
+      document.documentElement.style.setProperty('--zen-grain-strength', String(s.spaceGrain?.strength ?? 0));
+    }
+  } else {
+    if (lastSpacePaint.gradient !== '') {
+      lastSpacePaint.gradient = '';
+      lastSpacePaint.texture = '';
+      document.documentElement.style.removeProperty('--space-noise');
+      delete document.documentElement.dataset.spaceTexture;
+      document.documentElement.style.removeProperty('--zen-grain-strength');
+    }
+    if (s.tints && s.tints.length > 1) document.documentElement.style.setProperty('--space-gradient', `linear-gradient(to bottom, ${s.tints.join(', ')})`);
+    else document.documentElement.style.removeProperty('--space-gradient');
+  }
   // The sidebar's text follows its own colour, which can be any colour, not the theme.
-  $('sidebar').dataset.ink = isDark(s.tint) ? 'light' : 'dark';
+  $('sidebar').dataset.ink = s.spaceInk ?? (isDark(s.tint) ? 'light' : 'dark');
   $('sidebar').toggleAttribute('data-bright', luminance(s.tint) > 0.85);
 
   ($('btn-back') as HTMLButtonElement).disabled = !s.nav.canGoBack;
   ($('btn-forward') as HTMLButtonElement).disabled = !s.nav.canGoForward;
   $('btn-reload').querySelector('path')?.setAttribute('d', ICONS[s.nav.loading ? 'close' : 'reload']);
 
+  // A hover card left open across a mode change (⌘S under a still pointer) never gets its pointer-out,
+  // and the tab card's overlay would keep the frame over the whole window.
+  if (document.body.dataset.sidebar !== s.sidebarMode) {
+    hideTabCard();
+    hideFavCard();
+  }
   document.body.dataset.sidebar = s.sidebarMode;
   // shortcut: the bar above the page needs a frame patch that isn't built yet, so the address stays in the sidebar until then.
   document.body.dataset.address = s.addressInSidebar || !HAS_TOP_BAR ? 'sidebar' : 'top';
@@ -271,6 +329,19 @@ function renderEmptyState(s: UiState, space: Space, show: boolean) {
   // Typing can start straight away, as in a new tab's address bar.
   if (wasHidden) requestAnimationFrame(() => $('home-input').focus());
 }
+
+/** The visitor's time and date, as the home prints them under the name; it keeps itself current. */
+function renderHomeClock() {
+  const now = new Date();
+  const [time, ampm] = now.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' }).split(' ');
+  const date = now.toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric' });
+  const when = document.querySelector<HTMLElement>('.home-when');
+  if (!when) return;
+  when.replaceChildren(h('b', {}, time, h('small', {}, ` ${ampm}`)), h('i', { 'aria-hidden': 'true' }), date);
+  when.dataset.on = 'true';
+}
+renderHomeClock();
+window.setInterval(renderHomeClock, 15_000);
 
 /** Host, a padlock or code icon for the kind of connection, and the environment badge. */
 function renderUrlbar(s: UiState, active: TabInfo | undefined) {
@@ -627,6 +698,14 @@ const sitePanel = $('site-panel');
 document.body.append(sitePanel);
 /** The button the panel hangs from: the sidebar's sliders, or the title bar's. */
 let siteAnchor: HTMLElement | undefined;
+/** Whether the panel asked the frame to cover the window. Remembered, not worked out again on
+ *  close: the layout may have moved since, and an overlay left on covers the window for good. */
+let sitePanelOverlay = false;
+function setSitePanelOverlay(on: boolean) {
+  if (on === sitePanelOverlay) return;
+  sitePanelOverlay = on;
+  api.setOverlay?.('site-panel', on);
+}
 
 function activeTab() {
   const space = state?.spaces.find((s) => s.id === state!.activeSpaceId);
@@ -634,20 +713,20 @@ function activeTab() {
 }
 
 function toggleSitePanel(open = sitePanel.hidden, anchor: HTMLElement = siteAnchor ?? $('btn-site')) {
-  const wasOpen = !sitePanel.hidden;
   sitePanel.hidden = !open || !activeTab();
   siteAnchor?.setAttribute('aria-expanded', 'false');
   // Out in the title bar the panel is beyond the sidebar strip, so the frame covers the window.
   const outside = (el: HTMLElement) => framedWindow && el.getBoundingClientRect().left >= $('sidebar').getBoundingClientRect().right;
   if (sitePanel.hidden) {
-    if (wasOpen && siteAnchor && outside(siteAnchor)) api.setOverlay?.('site-panel', false);
+    setSitePanelOverlay(false);
     siteAnchor = undefined;
     return;
   }
-  spaceEditor.hidden = true;
+  setSitePanelOverlay(outside(anchor));
+  // Through closeSpaceEditor, which takes its own overlay off; hiding it bare left that on.
+  closeSpaceEditor();
   downloadsPanel.hidden = true;
   archivePanel.hidden = true;
-  if (siteAnchor !== anchor && outside(anchor)) api.setOverlay?.('site-panel', true);
   siteAnchor = anchor;
   anchor.setAttribute('aria-expanded', 'true');
   renderSitePanel();
@@ -729,8 +808,10 @@ function extensionButton(extension: ExtensionsView['items'][number]): HTMLElemen
       onclick: () => openExtension(button, extension.id, extension.name),
       oncontextmenu: (e: Event) => {
         e.preventDefault();
-        toggleSitePanel(false);
-        api.extensionMenu(extension.id);
+        // The site panel closes after the menu, not before: closing it first shrank the frame
+        // back to the sidebar, and a menu that opened before the frame grew again was laid out
+        // inside the sidebar.
+        void api.extensionMenu(extension.id).finally(() => toggleSitePanel(false));
       },
       ondragstart: (e: DragEvent) => e.dataTransfer?.setData(EXTENSION_DRAG, extension.id),
       ondragover: (e: DragEvent) => {
@@ -756,7 +837,8 @@ function renderExtensions() {
   $('site-extensions').hidden = !pageHasExtensions;
   const here = state?.spaces.find((sp) => sp.id === state!.activeSpaceId)?.pinnedExtensions ?? [];
   const pinned = (extension: ExtensionsView['items'][number]) => extension.pinned || here.includes(extension.id);
-  const inSidebar = pageHasExtensions ? extensions.items.filter(pinned) : [];
+  // With the top bar they're in it (topbar.ts); without it, under the sidebar's address.
+  const inSidebar = pageHasExtensions && document.body.dataset.address === 'sidebar' ? extensions.items.filter(pinned) : [];
   $('pinned-extensions').replaceChildren(...inSidebar.map(extensionButton));
   $('pinned-extensions').hidden = !inSidebar.length;
   $('site-extension-list').replaceChildren(
@@ -906,7 +988,14 @@ function openSpaceEditor(spaceId: string) {
   archivePanel.hidden = true;
   toggleSitePanel(false);
   // The frame page is only as wide as the sidebar; it covers the window while the menu is up.
-  if (framedWindow) api.setOverlay?.('space-menu', true);
+  if (framedWindow) {
+    api.setOverlay?.('space-menu', true);
+    // A frame still at sidebar width swallows the clicks beyond it. Ask again once layout has
+    // settled; a setFrame() with the overlay already on is a no-op.
+    setTimeout(() => {
+      if (!spaceEditor.hidden) api.setOverlay?.('space-menu', true);
+    }, 150);
+  }
   const header = $('space-header');
   spaceEditor.style.top = `${Math.max(8, Math.round(header.getBoundingClientRect().top) - 10)}px`;
   header.classList.add('open');
@@ -920,6 +1009,8 @@ function openSpaceEditor(spaceId: string) {
 
 function closeSpaceEditor() {
   if (spaceEditor.hidden) return;
+  // Save the last colour change while the editor still knows which Space it was for.
+  themePicker?.flush();
   editingSpace = undefined;
   spaceEditor.hidden = true;
   const header = $('space-header');
@@ -928,138 +1019,30 @@ function closeSpaceEditor() {
   if (framedWindow) api.setOverlay?.('space-menu', false);
 }
 
-// ---- Space colours: presets, a field with up to three dots (a gradient), and the exact hex ----
+// ---- Space theme: Zen's workspace theme picker (a wheel of up to three dots, presets, custom colours, grain) ----
 
-/** Which of the Space's colours the presets, the field and the hex field change. */
-let colorIndex = 0;
-const colorField = $<HTMLCanvasElement>('space-color-field');
-const colorHex = $<HTMLInputElement>('space-color-hex');
-
-paintField(colorField);
-
-const spaceColorsOf = (space: Space) => (space.colors?.length ? space.colors : [space.color === DEFAULT_SPACE_COLOR ? spaceTint(DEFAULT_SPACE_COLOR, false) : space.color]);
-
-function setSpaceColor(color: string) {
-  const space = state?.spaces.find((s) => s.id === editingSpace);
-  if (!space) return;
-  const colors = [...spaceColorsOf(space)];
-  colors[Math.min(colorIndex, colors.length - 1)] = color;
-  api.updateSpace(space.id, { colors });
+let themePicker: ThemePicker | undefined;
+function spaceThemePicker() {
+  if (themePicker) return themePicker;
+  themePicker = new ThemePicker($('space-theme-picker'), {
+    // Paint the window at once while the pointer is still on the wheel; the save is throttled.
+    onChange: (theme) => {
+      if (!editingSpace) return;
+      previewTheme(theme);
+      api.updateSpace(editingSpace, { theme });
+    },
+    // Zen's three scheme buttons: the window's light/dark follows the system, or is pinned.
+    onScheme: (scheme) => api.setPreferences({ theme: scheme === 'auto' ? 'system' : scheme }),
+  });
+  $('space-color-reset').onclick = () => {
+    if (editingSpace) api.updateSpace(editingSpace, { color: DEFAULT_SPACE_COLOR });
+  };
+  return themePicker;
 }
 
-const presetSwatches = SPACE_COLORS.map(
-  (color) =>
-    h('button', {
-      class: 'swatch',
-      style: `--swatch: ${color}`,
-      title: color,
-      onclick: () => setSpaceColor(color),
-    }) as HTMLElement,
-);
-$('space-colors').replaceChildren(...presetSwatches);
-$('space-color-reset').onclick = () => {
-  colorIndex = 0;
-  if (editingSpace) api.updateSpace(editingSpace, { color: DEFAULT_SPACE_COLOR });
-};
-$('space-color-add').onclick = () => {
-  const space = state?.spaces.find((s) => s.id === editingSpace);
-  if (!space) return;
-  const colors = spaceColorsOf(space);
-  if (colors.length >= 3) return;
-  colorIndex = colors.length;
-  api.updateSpace(space.id, { colors: [...colors, nextStop(colors[colors.length - 1])] });
-};
-
-// Dragging a dot (or pressing the field) changes the selected colour: the dot follows the pointer at once, the Space a few times a second.
-const dragSend = throttled(setSpaceColor);
-colorField.parentElement!.addEventListener('pointerdown', (e) => {
-  const space = state?.spaces.find((s) => s.id === editingSpace);
-  if (!space) return;
-  const dot = (e.target as Element).closest<HTMLElement>('.color-dot');
-  if (dot) colorIndex = Number(dot.dataset.index);
-  const box = colorField.getBoundingClientRect();
-  const move = (ev: PointerEvent) => {
-    const x = Math.min(1, Math.max(0, (ev.clientX - box.left) / box.width));
-    const y = Math.min(1, Math.max(0, (ev.clientY - box.top) / box.height));
-    const color = fieldColor(x, y);
-    const shown = document.querySelector<HTMLElement>('#space-color-dots .color-dot.selected');
-    if (shown) Object.assign(shown.style, { left: `${x * 100}%`, top: `${y * 100}%` }), shown.style.setProperty('--dot', color);
-    dragSend.push(color);
-  };
-  const target = e.currentTarget as HTMLElement;
-  target.setPointerCapture(e.pointerId);
-  move(e);
-  target.addEventListener('pointermove', move);
-  const end = () => {
-    target.removeEventListener('pointermove', move);
-    dragSend.flush();
-  };
-  target.addEventListener('pointerup', end, { once: true });
-  target.addEventListener('pointercancel', end, { once: true });
-});
-colorHex.addEventListener('input', () => {
-  const value = colorHex.value.trim().replace(/^#?/, '#').toLowerCase();
-  if (/^#[0-9a-f]{6}$/.test(value)) setSpaceColor(value);
-});
-colorHex.addEventListener('keydown', (e) => e.key === 'Enter' && colorHex.blur());
-
-function renderSpaceColors(space: Space) {
-  const isDefault = space.color === DEFAULT_SPACE_COLOR;
-  const colors = spaceColorsOf(space);
-  colorIndex = Math.min(colorIndex, colors.length - 1);
-  const current = colors[colorIndex];
-  presetSwatches.forEach((swatch, i) => swatch.classList.toggle('selected', !isDefault && SPACE_COLORS[i] === current));
-  $('space-color-dots').replaceChildren(
-    ...colors.map((color, i) => {
-      const { x, y } = fieldPoint(color);
-      return h('span', { class: `color-dot${i === colorIndex ? ' selected' : ''}`, dataset: { index: String(i) }, style: `--dot: ${color}; left: ${x * 100}%; top: ${y * 100}%` });
-    }),
-  );
-  $('space-color-chips').replaceChildren(
-    ...colors.map((color, i) =>
-      h(
-        'button',
-        {
-          class: 'color-chip',
-          role: 'radio',
-          'aria-checked': String(i === colorIndex),
-          'aria-label': `Colour ${i + 1}: ${color}`,
-          style: `--swatch: ${color}`,
-          'aria-keyshortcuts': colors.length > 1 ? 'Delete' : undefined,
-          onclick: () => {
-            colorIndex = i;
-            renderSpaceColors(space);
-          },
-          // The keyboard's way to the remove mark.
-          onkeydown: (e: KeyboardEvent) => {
-            if ((e.key === 'Delete' || e.key === 'Backspace') && colors.length > 1) {
-              colorIndex = Math.max(0, i - 1);
-              api.updateSpace(space.id, { colors: colors.filter((_, j) => j !== i) });
-            }
-          },
-        },
-        colors.length > 1
-          ? h(
-              'span',
-              {
-                class: 'remove',
-                'aria-label': 'Remove this colour',
-                title: 'Remove this colour',
-                onclick: (e: Event) => {
-                  e.stopPropagation();
-                  colorIndex = Math.max(0, i - 1);
-                  api.updateSpace(space.id, { colors: colors.filter((_, j) => j !== i) });
-                },
-              },
-              icon('close'),
-            )
-          : null,
-      ),
-    ),
-  );
-  $('space-color-add').hidden = colors.length >= 3;
-  if (document.activeElement !== colorHex) colorHex.value = current.slice(1);
-  $<HTMLButtonElement>('space-color-reset').disabled = isDefault;
+function renderSpaceTheme(space: Space) {
+  spaceThemePicker().setSpace(space, state?.theme ?? 'system');
+  $<HTMLButtonElement>('space-color-reset').disabled = !space.theme && space.color === DEFAULT_SPACE_COLOR;
 }
 
 function renderSpaceEditor() {
@@ -1073,7 +1056,7 @@ function renderSpaceEditor() {
       h('button', { class: `emoji${space.emoji === emoji ? ' selected' : ''}`, onclick: () => api.updateSpace(space.id, { emoji }) }, emoji),
     ),
   );
-  renderSpaceColors(space);
+  renderSpaceTheme(space);
   $<HTMLSelectElement>('space-profile').value = space.isolated ? 'separate' : 'shared';
   // Every installed extension; the ones pinned everywhere show as pinned and stay so here.
   const pinnedHere = space.pinnedExtensions ?? [];
@@ -1145,6 +1128,8 @@ interface PaletteItem {
   detail?: string;
   /** A bang's site: the row reads like a sentence, ending in this chip. */
   bang?: { tag: string; name: string; active?: boolean };
+  /** Clicking this row puts its text in the field to keep typing from it; Enter still runs it. */
+  fill?: boolean;
 }
 
 const palette = $('palette');
@@ -1155,6 +1140,8 @@ let paletteItems: PaletteItem[] = [];
 // Opened with nothing to list (no tabs): just the field, until there is something to show.
 let paletteBare = false;
 let selected = 0;
+/** What was typed, kept apart from what a selected suggestion puts in the field. */
+let paletteTyped = '';
 /** DuckDuckGo's bangs as { tag: site name } (build-bangs.mjs), once the first `!` was typed. */
 let bangNames: Record<string, string> = {};
 let bangsLoading: Promise<void> | undefined;
@@ -1172,10 +1159,20 @@ function loadBangs() {
     .catch((err) => console.error('Perseu: no bang list', err));
 }
 
+/** A `!tag` DuckDuckGo knows, typed anywhere in the text, not only at its start. */
+function bangTokenIn(value: string) {
+  const tag = /(?:^|\s)!([\w.-]+)/.exec(value)?.[1].toLowerCase();
+  return tag && Object.hasOwn(bangNames, tag) ? { tag, name: bangNames[tag] } : undefined;
+}
+
+/** The text without its bang tokens, so what is left is just the query. */
+function withoutBangTokens(value: string) {
+  return value.replace(/(?:^|\s)![\w.-]+/g, ' ').trim();
+}
+
 /** The bang that is all of the text so far (`!gh`), if DuckDuckGo knows it. */
 function typedBang(input = paletteInput) {
-  const tag = /^!([\w.-]+)$/.exec(input.value)?.[1].toLowerCase();
-  return tag && Object.hasOwn(bangNames, tag) ? { tag, name: bangNames[tag] } : undefined;
+  return bangTokenIn(input.value);
 }
 
 function setPaletteBang(bang: typeof paletteBang, text: string) {
@@ -1195,6 +1192,7 @@ function openPalette(mode: PaletteMode) {
   const space = state?.spaces.find((s) => s.id === state!.activeSpaceId);
   const active = space?.activeTabId ? state?.tabs[space.activeTabId] : undefined;
   paletteInput.value = mode === 'navigate' && active ? active.url : '';
+  paletteTyped = paletteInput.value;
   paletteInput.focus();
   paletteInput.select();
   selected = 0;
@@ -1271,15 +1269,16 @@ function updatePalette() {
 
   if (q) {
     const isUrl = looksLikeUrl(q);
+    // A bang typed mid-text goes first, so what is left is just the query.
+    const bangAnywhere = bangTokenIn(q);
     const searchItem: PaletteItem = {
       group: '',
       icon: isUrl ? 'globe' : 'search',
       label: q,
       sub: isUrl ? 'Open' : `Search ${state.searchEngineName}`,
-      run: () => open(q),
+      run: () => open(bangAnywhere ? `!${bangAnywhere.tag} ${withoutBangTokens(q)}` : q),
     };
-    const bang = typedBang();
-    if (bang) Object.assign(searchItem, { sub: 'DuckDuckGo search', bang });
+    if (bangAnywhere) Object.assign(searchItem, { sub: 'DuckDuckGo search', bang: bangAnywhere });
 
     // `env` lists the current page on the project's other environments.
     if (/^env\b/i.test(q) && state.environment) {
@@ -1326,7 +1325,8 @@ function updatePalette() {
       items.push({ group: 'Frequently visited', icon: entry.url, label: entry.title || entry.url, sub: host(entry.url), run: () => open(entry.url) });
     }
     if (!isUrl && suggestionsFor && lower.startsWith(suggestionsFor.toLowerCase())) {
-      for (const text of paletteSuggestions.filter((s) => s.toLowerCase() !== lower)) items.push({ group: 'Suggestions', icon: 'search', label: text, sub: '', run: () => open(text) });
+      // Picking a suggestion puts it in the field to keep typing from it; Enter runs it.
+      for (const text of paletteSuggestions.filter((s) => s.toLowerCase() !== lower)) items.push({ group: 'Suggestions', icon: 'search', label: text, sub: '', fill: true, run: () => open(text) });
     }
   }
 
@@ -1392,10 +1392,16 @@ function updatePalette() {
           class: `item${i === selected ? ' selected' : ''}${item.bang ? ' bang' : ''}`,
           dataset: { index: String(i) },
           onmousemove: () => {
-            if (selected !== i) (selected = i), updatePalette();
+            if (selected !== i) (selected = i), updatePalette(), syncPaletteField();
           },
           onmousedown: (e: Event) => {
             e.preventDefault();
+            // A suggestion is picked into the field, to keep typing from it.
+            if (item.fill) {
+              paletteInput.value = item.label;
+              paletteChanged();
+              return;
+            }
             runItem(i);
           },
         },
@@ -1436,6 +1442,17 @@ function runItem(i: number) {
   closePalette();
 }
 
+/** The field follows the selection: a suggestion lands in it, to keep typing from it. */
+function syncPaletteField() {
+  const picked = paletteItems[selected];
+  if (picked?.fill) {
+    paletteInput.value = picked.label;
+    paletteInput.setSelectionRange(picked.label.length, picked.label.length);
+  } else if (paletteInput.value !== paletteTyped) {
+    paletteInput.value = paletteTyped;
+  }
+}
+
 // History lives in the main process; results arrive asynchronously and are dropped if stale.
 // A background that was restarting drops the request; asking again wakes it.
 const suggestionsOf = (q: string) => api.searchSuggestions(q).catch(() => api.searchSuggestions(q)).catch(() => [] as string[]);
@@ -1467,17 +1484,19 @@ function refreshHistory() {
 }
 
 function paletteChanged() {
-  if (paletteInput.value.startsWith('!')) loadBangs();
+  paletteTyped = paletteInput.value;
+  if (paletteInput.value.includes('!')) loadBangs();
   selected = 0;
   updatePalette();
   refreshHistory();
 }
 paletteInput.addEventListener('input', paletteChanged);
 paletteInput.addEventListener('keydown', (e) => {
-  const bang = e.key === ' ' && !paletteBang && paletteInput.selectionStart === paletteInput.value.length ? typedBang() : undefined;
+  // A finished bang turns into the chip on Space, wherever it sits in the text.
+  const bang = e.key === ' ' && !paletteBang ? typedBang() : undefined;
   if (bang) {
     e.preventDefault();
-    setPaletteBang(bang, '');
+    setPaletteBang(bang, withoutBangTokens(paletteInput.value));
   } else if (e.key === 'Backspace' && paletteBang && !paletteInput.value) {
     e.preventDefault();
     setPaletteBang(undefined, `!${paletteBang.tag}`);
@@ -1488,6 +1507,7 @@ paletteInput.addEventListener('keydown', (e) => {
     const n = paletteItems.length;
     if (n) selected = (selected + (e.key === 'ArrowDown' ? 1 : -1) + n) % n;
     updatePalette();
+    syncPaletteField();
   } else return;
 });
 palette.addEventListener('mousedown', (e) => {
@@ -1737,6 +1757,9 @@ function leavePeek(e?: MouseEvent) {
 }
 $('top-edge').addEventListener('mouseenter', () => api.setTopBarPeek(true));
 $('top-edge').addEventListener('mouseleave', () => api.setTopBarPeek(false));
+// The bar opened from the window's top edge closes when the pointer goes to the sidebar from up there
+// (it never crossed the bar on the way, topbar.ts).
+peekSidebar.addEventListener('mouseenter', () => state?.addressInSidebar && api.setTopBarPeek(false));
 // A wheel moves the row of Spaces sideways when they don't all fit.
 $('spaces').addEventListener('wheel', (e) => ($('spaces').scrollLeft += e.deltaY || e.deltaX), { passive: true });
 peekEdge.addEventListener('mouseenter', () => {
@@ -2041,6 +2064,8 @@ $('btn-newtab').onclick = () => api.openPalette('new-tab');
 $('btn-search').onclick = () => api.openPalette('new-tab');
 $('btn-clear').onclick = () => api.clearToday();
 $('btn-newspace').onclick = () => api.newSpace();
+// The home's own way into Settings, at its top right.
+$('home-settings').onclick = () => api.openSettings();
 // Searches, or opens the address, in this tab (a new tab's page) or a new one (an empty Space).
 const homeInput = $<HTMLInputElement>('home-input');
 const homeList = $('home-suggestions');
@@ -2048,20 +2073,37 @@ let homeBang: { tag: string; name: string } | undefined;
 let homeHits: Array<{ url: string; title: string; search?: boolean }> = [];
 let homeSuggestTimer: number | undefined;
 let homeSelected = -1;
+/** What was typed, kept apart from what a selected suggestion puts in the field. */
+let homeTyped = '';
 
 function renderHome() {
   $<HTMLButtonElement>('home-go').disabled = !homeInput.value.trim() && !homeBang;
   $('home-bang').hidden = !homeBang;
   $('home-bang').textContent = homeBang?.name ?? '';
-  homeInput.placeholder = homeBang ? '' : 'Search or type a URL';
+  homeInput.placeholder = homeBang ? '' : 'Search or enter an address';
   const bang = !homeBang ? typedBang(homeInput) : undefined;
   const row = (selected: boolean, onpick: () => void, ...content: unknown[]) =>
     h('li', { class: selected ? 'selected' : '', onmousedown: (e: Event) => (e.preventDefault(), onpick()) }, ...(content as HTMLElement[]));
-  const acceptHomeBang = () => bang && setHomeBang(bang, '');
+  const acceptHomeBang = () => bang && setHomeBang(bang, withoutBangTokens(homeInput.value));
   homeList.replaceChildren(
     ...(bang
       ? [row(false, acceptHomeBang, itemIcon('search'), h('span', { class: 'name' }, homeInput.value), h('span', { class: 'host' }, 'DuckDuckGo search'), h('span', { class: 'palette-chip' }, icon('search'), bang.name))]
-      : homeHits.map((hit, i) => row(i === homeSelected, () => openFromHome(hit.url), itemIcon(hit.search ? 'search' : hit.url), h('span', { class: 'name' }, hit.title || hit.url), hit.search ? null : h('span', { class: 'host' }, host(hit.url))))),
+      : homeHits.map((hit, i) =>
+          // A search suggestion is picked into the field, to keep typing from it;
+          // a site you have been opens at once.
+          row(
+            i === homeSelected,
+            () => {
+              if (hit.search) {
+                homeInput.value = hit.url;
+                homeChanged();
+              } else openFromHome(hit.url);
+            },
+            itemIcon(hit.search ? 'search' : hit.url),
+            h('span', { class: 'name' }, hit.title || hit.url),
+            hit.search ? null : h('span', { class: 'host' }, host(hit.url)),
+          ),
+        )),
   );
   homeList.hidden = !homeList.children.length;
 }
@@ -2075,7 +2117,8 @@ function setHomeBang(bang: typeof homeBang, text: string) {
 
 function homeChanged() {
   const q = homeInput.value.trim();
-  if (q.startsWith('!')) loadBangs();
+  homeTyped = homeInput.value;
+  if (q.includes('!')) loadBangs();
   // The last list stays up while the next one is on its way.
   if (!q || q.startsWith('!') || homeBang) homeHits = [];
   homeSelected = -1;
@@ -2102,10 +2145,11 @@ function openFromHome(text: string) {
 homeInput.addEventListener('input', homeChanged);
 homeInput.addEventListener('blur', () => (homeList.hidden = true));
 homeInput.addEventListener('keydown', (e) => {
-  const bang = e.key === ' ' && !homeBang && homeInput.selectionStart === homeInput.value.length ? typedBang(homeInput) : undefined;
+  // A finished bang turns into the chip on Space, wherever it sits in the text.
+  const bang = e.key === ' ' && !homeBang ? typedBang(homeInput) : undefined;
   if (bang) {
     e.preventDefault();
-    setHomeBang(bang, '');
+    setHomeBang(bang, withoutBangTokens(homeInput.value));
   } else if (e.key === 'Backspace' && homeBang && !homeInput.value) {
     e.preventDefault();
     setHomeBang(undefined, `!${homeBang.tag}`);
@@ -2114,6 +2158,14 @@ homeInput.addEventListener('keydown', (e) => {
     const n = homeHits.length;
     homeSelected = e.key === 'ArrowDown' ? (homeSelected + 1) % n : (homeSelected <= 0 ? n : homeSelected) - 1;
     renderHome();
+    // The selection lands in the field, to keep typing from it.
+    const picked = homeHits[homeSelected];
+    if (picked?.search) {
+      homeInput.value = picked.url;
+      homeInput.setSelectionRange(picked.url.length, picked.url.length);
+    } else if (homeInput.value !== homeTyped) {
+      homeInput.value = homeTyped;
+    }
   } else if (e.key === 'Escape') {
     homeHits = [];
     renderHome();
@@ -2122,12 +2174,13 @@ homeInput.addEventListener('keydown', (e) => {
 $('home-composer').addEventListener('submit', (e) => {
   e.preventDefault();
   const text = homeInput.value.trim();
+  // A bang left in the text goes first, so what is left is just the query.
+  const midBang = bangTokenIn(text);
   if (homeSelected >= 0) openFromHome(homeHits[homeSelected].url);
   else if (homeBang) openFromHome(`!${homeBang.tag} ${text}`);
-  else if (text) openFromHome(text);
+  else if (text) openFromHome(midBang ? `!${midBang.tag} ${withoutBangTokens(text)}` : text);
 });
 // What isn't there yet says so, and does nothing.
-for (const el of document.querySelectorAll<HTMLElement>('.composer [aria-disabled="true"]')) el.addEventListener('click', (e) => e.preventDefault());
 // A click on the Space's name opens its menu (Arc's Space settings); a second click closes it.
 $('space-header').onclick = () => (spaceEditor.hidden ? state && openSpaceEditor(state.activeSpaceId) : closeSpaceEditor());
 $('space-header').onkeydown = (e) => (e.key === 'Enter' || e.key === ' ') && (e.preventDefault(), $('space-header').click());
@@ -2142,7 +2195,7 @@ $('sidebar').addEventListener('contextmenu', (e) => {
   if (e.defaultPrevented || !state) return;
   if ((e.target as Element).closest('button, a, input, textarea, select, label, [contenteditable], .row, .popover, #urlbar-wrap, #agent-status')) return;
   e.preventDefault();
-  api.spaceMenu(state.activeSpaceId);
+  api.sidebarMenu();
 });
 
 acceptDrops($('favorites'), { zone: 'favorites' });
@@ -2150,67 +2203,157 @@ acceptDrops($('pinned'), { zone: 'pinned' });
 acceptDrops($('today'), { zone: 'today' });
 acceptDrops($('btn-newtab'), { zone: 'today' });
 
-// ---- now playing ------------------------------------------------------------------
+/// ---- now playing ------------------------------------------------------------------
+// Arc's mini player: a one-row bar at the foot of the sidebar (the source's icon, the
+// transport, the speaker) that grows upwards on hover into the artist, the scrolling title
+// and the close, the icon rising to sit beside the title. Built once and updated in place, so
+// its animations (the notes, the scrolling title, the hover) never restart on a state tick.
 
 const nowPlayingCard = $('now-playing');
 let nowPlaying: NowPlaying | null = null;
 
+/** The player's filled glyphs (16×16), as the media keys draw them. */
+const NP_GLYPHS = {
+  previous: 'M7.5 4 2 8l5.5 4zM14 4 8.5 8 14 12z',
+  next: 'M2 4l5.5 4L2 12zM8.5 4 14 8l-5.5 4z',
+  pause: 'M4.5 3.5h2.4v9H4.5zM9.1 3.5h2.4v9H9.1z',
+  play: 'M5 3.2v9.6L12.8 8z',
+};
+const npGlyph = (name: keyof typeof NP_GLYPHS) => {
+  const el = svg(NP_GLYPHS[name]);
+  el.classList.add('np-glyph');
+  return el;
+};
+
+const np = (() => {
+  const control = (label: string, onclick: () => void, ...children: Node[]) =>
+    h('button', { class: 'np-ctl', 'aria-label': label, title: label, onclick }, ...children);
+  const tabId = () => nowPlaying?.tabId ?? '';
+  const media = (action: 'play' | 'pause' | 'next' | 'previous' | 'mute' | 'unmute') => () => {
+    if (nowPlaying) api.mediaControl?.(tabId(), action);
+  };
+
+  const source = h('span', { class: 'np-source' });
+  // The notes that rise from the source while it plays.
+  const notes = h('span', { class: 'np-notes' }, h('i', {}, '♪'), h('i', {}, '♫'), h('i', {}, '♪'));
+  const sourceWrap = h('span', { class: 'np-source-wrap', 'aria-hidden': 'true' }, notes, source);
+  const artistText = h('span', { class: 'np-artist-text' });
+  const identify = h('button', { class: 'np-identify', onclick: () => nowPlaying && api.identifySong?.(tabId()) });
+  const titleText = h('span', { class: 'np-title-text' });
+  const titleTrack = h('span', { class: 'np-title-track' }, titleText);
+  const marquee = h('span', { class: 'np-marquee', 'aria-live': 'polite' }, titleTrack);
+  const close = control('Close', () => api.dismissNowPlaying?.(), icon('close'));
+  close.classList.add('np-close');
+  // The first key: the video's own picture-in-picture, or back to the tab for a music site.
+  const first = control('Picture in Picture', () => {
+    if (!nowPlaying) return;
+    if (first.dataset.kind === 'tab') api.activate(tabId());
+    else api.togglePip?.(tabId());
+  });
+  first.classList.add('np-first');
+  const previous = control('Previous', media('previous'), npGlyph('previous'));
+  const toggle = control('Pause', () => media(nowPlaying?.playing ? 'pause' : 'play')());
+  const next = control('Next', media('next'), npGlyph('next'));
+  const volume = control('Mute', () => media(state?.tabs[tabId()]?.muted ? 'unmute' : 'mute')());
+
+  nowPlayingCard.append(
+    h(
+      'div',
+      { class: 'np-card' },
+      sourceWrap,
+      h(
+        'div',
+        { class: 'np-info' },
+        h(
+          'div',
+          { class: 'np-info-inner' },
+          h('p', { class: 'np-artist' }, artistText, identify),
+          h('div', { class: 'np-title-row' }, marquee, close),
+        ),
+      ),
+      h('div', { class: 'np-controls' }, first, previous, toggle, next, volume),
+    ),
+  );
+  return { source, artistText, identify, titleText, titleTrack, marquee, first, previous, toggle, next, volume };
+})();
+
+let npShownTab: string | undefined;
+let npTitle = '';
+
+function setTip(el: HTMLElement, label: string) {
+  el.dataset.tip = label;
+  el.setAttribute('aria-label', label);
+}
+
+/** A title wider than its row scrolls on a loop, two copies a gap apart, as the design's does. */
+function fitNowPlayingTitle() {
+  const { marquee, titleTrack, titleText } = np;
+  titleTrack.querySelector('.np-title-copy')?.remove();
+  marquee.classList.remove('scrolls');
+  if (titleText.scrollWidth <= marquee.clientWidth) return;
+  const shift = titleText.scrollWidth + 32;
+  titleTrack.append(h('span', { class: 'np-title-text np-title-copy', 'aria-hidden': 'true' }, npTitle));
+  marquee.style.setProperty('--np-shift', `-${shift}px`);
+  marquee.style.setProperty('--np-scroll', `${(shift / 28).toFixed(2)}s`);
+  marquee.classList.add('scrolls');
+}
+
 function renderNowPlaying() {
   const song = nowPlaying;
   const tab = song && state?.tabs[song.tabId];
-  nowPlayingCard.hidden = !tab;
-  if (!song || !tab) return void nowPlayingCard.replaceChildren();
+  if (!song || !tab) {
+    nowPlayingCard.hidden = true;
+    npShownTab = undefined;
+    return;
+  }
+  // Rises in when it first shows (or comes for another tab), not on every tick.
+  if (nowPlayingCard.hidden || npShownTab !== song.tabId) {
+    nowPlayingCard.hidden = false;
+    nowPlayingCard.classList.remove('np-enter');
+    void nowPlayingCard.offsetWidth;
+    nowPlayingCard.classList.add('np-enter');
+    np.source.replaceChildren(favicon(tab));
+  }
+  npShownTab = song.tabId;
   nowPlayingCard.dataset.status = song.status;
+  nowPlayingCard.toggleAttribute('data-playing', song.playing);
 
-  const busy = song.status === 'identifying';
   const title =
     song.status === 'found' && song.title
       ? song.title
       : ({ identifying: 'Finding song…', nomatch: 'Song not found' } as Record<string, string>)[song.status] ?? tabTitle(tab);
-  const sub = song.status === 'found' ? song.artist ?? host(tab.url) : song.status === 'nomatch' ? tabTitle(tab) : host(tab.url);
-  const art = song.status === 'found' && song.artwork ? (h('img', { src: song.artwork, alt: '', draggable: 'false' }) as HTMLImageElement) : favicon(tab);
-  if (art instanceof HTMLImageElement && song.artwork) art.onerror = () => art.replaceWith(favicon(tab));
-  const control = (label: string, name: IconName, action: 'play' | 'pause' | 'next' | 'previous') =>
-    h('button', { class: 'icon-button', 'aria-label': label, title: label, onclick: () => api.mediaControl?.(song.tabId, action) }, icon(name));
+  np.artistText.textContent = song.status === 'found' ? song.artist ?? host(tab.url) : song.status === 'nomatch' ? tabTitle(tab) : host(tab.url);
+  np.identify.hidden = song.status !== 'audio' && song.status !== 'nomatch';
+  np.identify.textContent = song.status === 'nomatch' ? 'Try again' : 'Identify';
+  if (title !== npTitle) {
+    npTitle = title;
+    np.titleText.textContent = title;
+    requestAnimationFrame(fitNowPlayingTitle);
+  }
 
-  nowPlayingCard.replaceChildren(
-    h(
-      'div',
-      { class: 'np-head' },
-      // The art is the way back to the tab; a cover gets the site's icon in its corner, so the source stays visible.
-      h(
-        'button',
-        { class: `np-art${song.status === 'found' && song.artwork ? ' cover' : ''}`, 'aria-label': `Go to ${tabTitle(tab)}`, title: 'Go to tab', onclick: () => api.activate(song.tabId) },
-        art,
-        song.status === 'found' && song.artwork ? h('span', { class: 'np-source' }, favicon(tab)) : null,
-      ),
-      h(
-        'div',
-        { class: 'np-meta', 'aria-live': 'polite' },
-        h('p', { class: 'np-title' }, busy ? h('span', { class: 'np-eq', 'aria-hidden': 'true' }, h('i'), h('i'), h('i')) : null, h('span', { class: 'np-clip' }, title)),
-        h(
-          'p',
-          { class: 'np-sub' },
-          // Recognised names are a guess from the audio; say so.
-          song.status === 'found' && song.source === 'recognized' ? h('span', { class: 'np-badge', title: 'Identified from the audio' }, icon('music')) : null,
-          h('span', { class: 'np-clip' }, sub),
-        ),
-      ),
-      h('button', { class: 'icon-button np-close', 'aria-label': 'Hide', title: 'Hide', onclick: () => api.dismissNowPlaying?.() }, icon('close')),
-    ),
-    h(
-      'div',
-      { class: 'np-controls' },
-      control('Previous track', 'previous', 'previous'),
-      song.playing ? control('Pause', 'pause', 'pause') : control('Play', 'play', 'play'),
-      control('Next track', 'next', 'next'),
-      h('span', { class: 'spacer' }),
-      song.status === 'audio' || song.status === 'nomatch'
-        ? h('button', { class: 'np-chip', 'aria-label': song.status === 'nomatch' ? 'Try identifying the song again' : 'Identify the song', title: 'Find the song’s name', onclick: () => api.identifySong?.(song.tabId) }, icon('music'), song.status === 'nomatch' ? 'Try again' : 'Identify')
-        : null,
-    ),
-  );
+  // A music site's card goes back to its tab; anything else is a video to pop out.
+  const kind = song.source === 'page' ? 'tab' : 'pip';
+  if (np.first.dataset.kind !== kind) {
+    np.first.dataset.kind = kind;
+    np.first.replaceChildren(icon(kind === 'tab' ? 'undo' : 'miniWindow'));
+    setTip(np.first, kind === 'tab' ? 'Go to Tab' : 'Picture in Picture');
+  }
+  (np.previous as HTMLButtonElement).disabled = song.canPrevious === false;
+  (np.next as HTMLButtonElement).disabled = song.canNext === false;
+  if (np.toggle.dataset.playing !== String(song.playing)) {
+    np.toggle.dataset.playing = String(song.playing);
+    np.toggle.replaceChildren(npGlyph(song.playing ? 'pause' : 'play'));
+    setTip(np.toggle, song.playing ? 'Pause' : 'Play');
+  }
+  const muted = !!tab.muted;
+  if (np.volume.dataset.muted !== String(muted)) {
+    np.volume.dataset.muted = String(muted);
+    np.volume.replaceChildren(icon(muted ? 'muted' : 'volume'));
+    setTip(np.volume, muted ? 'Unmute' : 'Mute');
+  }
 }
+// The title row's width follows the sidebar's.
+new ResizeObserver(() => npTitle && fitNowPlayingTitle()).observe(nowPlayingCard);
 
 api.onNowPlaying?.((song) => {
   nowPlaying = song;

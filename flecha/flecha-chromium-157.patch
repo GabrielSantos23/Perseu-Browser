@@ -229,10 +229,10 @@ index 22255c3bcb2e7b26ff6a4d45da0c901a402be666..4b07934578db7add53da6fa88c56b891
        bundle_deps += [ ":chrome_renderer_library" ]
      }
 diff --git a/chrome/app/chrome_main_delegate.cc b/chrome/app/chrome_main_delegate.cc
-index 0447c4084b0cbddf4d5b2c230a1a704437254701..4bef291b251cb907dfaff445364c1f8dc1766bff 100644
+index 0447c4084b0cbddf4d5b2c230a1a704437254701..852fbba231ca729a59363930de758db460b46462 100644
 --- a/chrome/app/chrome_main_delegate.cc
 +++ b/chrome/app/chrome_main_delegate.cc
-@@ -1226,6 +1226,21 @@ std::optional<int> ChromeMainDelegate::BasicStartupComplete() {
+@@ -1226,6 +1226,42 @@ std::optional<int> ChromeMainDelegate::BasicStartupComplete() {
    }
  #endif  // !defined(BUILDING_CHROME_RENDERER)
  
@@ -248,6 +248,27 @@ index 0447c4084b0cbddf4d5b2c230a1a704437254701..4bef291b251cb907dfaff445364c1f8d
 +      !command_line.HasSwitch(switches::kNoFirstRun)) {
 +    base::CommandLine::ForCurrentProcess()->AppendSwitch(
 +        switches::kNoFirstRun);
++  }
++
++  // Flecha: automatic picture-in-picture for any playing video on a site the
++  // user allowed it for (the site panel's switch), on switching tabs and on
++  // minimizing the window. Without these Chromium 157 only auto-pips pages
++  // that register their own enterpictureinpicture handler, and never on
++  // minimize. Added to any --enable-features already given; the browser
++  // passes its features on to the renderers.
++  if (!command_line.HasSwitch(switches::kProcessType)) {
++    base::CommandLine* browser_command_line =
++        base::CommandLine::ForCurrentProcess();
++    std::string features =
++        browser_command_line->GetSwitchValueASCII(switches::kEnableFeatures);
++    for (const char* feature : {"BrowserInitiatedAutomaticPictureInPicture",
++                                "AutoPictureInPictureOnWindowOccluded"}) {
++      if (features.find(feature) == std::string::npos) {
++        features += (features.empty() ? "" : ",") + std::string(feature);
++      }
++    }
++    browser_command_line->AppendSwitchASCII(switches::kEnableFeatures,
++                                            features);
 +  }
 +#endif  // !defined(BUILDING_CHROME_RENDERER)
 +
@@ -930,10 +951,10 @@ index 0000000000000000000000000000000000000000..93b4a58ca39e929f7070f16d7eeae64b
 +#endif  // CHROME_BROWSER_EXTENSIONS_API_FLECHA_PRIVATE_FLECHA_BROWSER_IMPORT_H_
 diff --git a/chrome/browser/extensions/api/flecha_private/flecha_private_api.cc b/chrome/browser/extensions/api/flecha_private/flecha_private_api.cc
 new file mode 100644
-index 0000000000000000000000000000000000000000..479dcae3616824d9009f1ed2d11dfde5b9ea4521
+index 0000000000000000000000000000000000000000..f650fbaee48599524b2a2a29bc638442416b10fc
 --- /dev/null
 +++ b/chrome/browser/extensions/api/flecha_private/flecha_private_api.cc
-@@ -0,0 +1,1219 @@
+@@ -0,0 +1,1275 @@
 +// Copyright 2026 The Flecha Authors
 +// Use of this source code is governed by a BSD-style license that can be
 +// found in the LICENSE file.
@@ -956,6 +977,8 @@ index 0000000000000000000000000000000000000000..479dcae3616824d9009f1ed2d11dfde5
 +#include "base/task/thread_pool.h"
 +#include "base/threading/scoped_blocking_call.h"
 +#include "base/time/time.h"
++#include "services/media_session/public/cpp/media_position.h"
++#include "ui/aura/window.h"
 +#include "base/version.h"
 +#include "build/build_config.h"
 +#include "chrome/browser/lifetime/application_lifetime.h"
@@ -1129,6 +1152,19 @@ index 0000000000000000000000000000000000000000..479dcae3616824d9009f1ed2d11dfde5
 +    if (!state.top_bar_foreground) {
 +      return RespondNow(Error(kBadColorError));
 +    }
++  }
++  if (params->state.top_bar_background) {
++    state.top_bar_background = ParseColor(*params->state.top_bar_background);
++    if (!state.top_bar_background) {
++      return RespondNow(Error(kBadColorError));
++    }
++  }
++  if (params->state.texture) {
++    state.texture = *params->state.texture;
++  }
++  if (params->state.texture_strength) {
++    state.texture_strength =
++        std::clamp(*params->state.texture_strength, 0.0, 1.0);
 +  }
 +
 +  if (params->window_id) {
@@ -1594,6 +1630,14 @@ index 0000000000000000000000000000000000000000..479dcae3616824d9009f1ed2d11dfde5
 +      actions, media_session::mojom::MediaSessionAction::kNextTrack);
 +  result.can_previous = std::ranges::contains(
 +      actions, media_session::mojom::MediaSessionAction::kPreviousTrack);
++  result.position = 0;
++  result.duration = 0;
++  if (const std::optional<media_session::MediaPosition> position =
++          session->GetMediaSessionPosition()) {
++    result.position =
++        position->GetPositionAtTime(base::TimeTicks::Now()).InSecondsF();
++    result.duration = position->duration().InSecondsF();
++  }
 +  return RespondNow(ArgumentList(
 +      flecha_private::GetMedia::Results::Create(result)));
 +}
@@ -1626,6 +1670,39 @@ index 0000000000000000000000000000000000000000..479dcae3616824d9009f1ed2d11dfde5
 +      break;
 +    case flecha_private::MediaCommand::kNone:
 +      break;
++  }
++  return RespondNow(NoArguments());
++}
++
++ExtensionFunction::ResponseAction FlechaPrivateGetWindowSizeFunction::Run() {
++  content::WebContents* contents = GetSenderWebContents();
++  if (!contents) {
++    return RespondNow(Error(kNotAFramePageError));
++  }
++  gfx::NativeWindow native = contents->GetTopLevelNativeWindow();
++  if (!native) {
++    return RespondNow(NoArguments());
++  }
++  const gfx::Rect bounds = native->GetBoundsInScreen();
++  flecha_private::WindowSize size;
++  size.width = bounds.width();
++  size.height = bounds.height();
++  return RespondNow(ArgumentList(
++      flecha_private::GetWindowSize::Results::Create(size)));
++}
++
++ExtensionFunction::ResponseAction FlechaPrivateSeekMediaFunction::Run() {
++  auto params = flecha_private::SeekMedia::Params::Create(args());
++  EXTENSION_FUNCTION_VALIDATE(params);
++
++  content::WebContents* contents = nullptr;
++  if (!ExtensionTabUtil::GetTabById(params->tab_id, browser_context(),
++                                    /*include_incognito=*/false, &contents)) {
++    return RespondNow(Error(kNoTabError, base::NumberToString(params->tab_id)));
++  }
++  content::MediaSession* session = content::MediaSession::GetIfExists(contents);
++  if (session) {
++    session->SeekTo(base::Seconds(params->seconds));
 +  }
 +  return RespondNow(NoArguments());
 +}
@@ -2155,10 +2232,10 @@ index 0000000000000000000000000000000000000000..479dcae3616824d9009f1ed2d11dfde5
 +}  // namespace extensions
 diff --git a/chrome/browser/extensions/api/flecha_private/flecha_private_api.h b/chrome/browser/extensions/api/flecha_private/flecha_private_api.h
 new file mode 100644
-index 0000000000000000000000000000000000000000..3d753ea53f983ccff6633c538da887dbfb05fae6
+index 0000000000000000000000000000000000000000..31aaba491f835f2c6af2a0cfd9a2980d31eb10f1
 --- /dev/null
 +++ b/chrome/browser/extensions/api/flecha_private/flecha_private_api.h
-@@ -0,0 +1,393 @@
+@@ -0,0 +1,411 @@
 +// Copyright 2026 The Flecha Authors
 +// Use of this source code is governed by a BSD-style license that can be
 +// found in the LICENSE file.
@@ -2355,6 +2432,24 @@ index 0000000000000000000000000000000000000000..3d753ea53f983ccff6633c538da887db
 +
 + protected:
 +  ~FlechaPrivateMediaActionFunction() override = default;
++  ResponseAction Run() override;
++};
++
++class FlechaPrivateSeekMediaFunction : public ExtensionFunction {
++ public:
++  DECLARE_EXTENSION_FUNCTION("flechaPrivate.seekMedia", UNKNOWN)
++
++ protected:
++  ~FlechaPrivateSeekMediaFunction() override = default;
++  ResponseAction Run() override;
++};
++
++class FlechaPrivateGetWindowSizeFunction : public ExtensionFunction {
++ public:
++  DECLARE_EXTENSION_FUNCTION("flechaPrivate.getWindowSize", UNKNOWN)
++
++ protected:
++  ~FlechaPrivateGetWindowSizeFunction() override = default;
 +  ResponseAction Run() override;
 +};
 +
@@ -3169,10 +3264,10 @@ index 0000000000000000000000000000000000000000..1ac65e45e00ddeb309f4fcac76fdf8c0
 +}
 diff --git a/chrome/browser/flecha/flecha_frame_host.h b/chrome/browser/flecha/flecha_frame_host.h
 new file mode 100644
-index 0000000000000000000000000000000000000000..56877b6bff03452ed117a4ae9872015cc125108c
+index 0000000000000000000000000000000000000000..df14ec9bb3cd229232506275b082b897f0a9b118
 --- /dev/null
 +++ b/chrome/browser/flecha/flecha_frame_host.h
-@@ -0,0 +1,298 @@
+@@ -0,0 +1,321 @@
 +// Copyright 2026 The Flecha Authors
 +// Use of this source code is governed by a BSD-style license that can be
 +// found in the LICENSE file.
@@ -3214,7 +3309,7 @@ index 0000000000000000000000000000000000000000..56877b6bff03452ed117a4ae9872015c
 +// browser views (chrome/browser/ui/views/frame/flecha_frame_view.h).
 +
 +// The spike's layout constants.
-+inline constexpr int kFlechaSidebarWidth = 260;
++inline constexpr int kFlechaSidebarWidth = 230;
 +// With the sidebar hidden, this strip at the left edge brings it back on hover.
 +inline constexpr int kFlechaEdgeWidth = 8;
 +// The floating sidebar's inset from the window edge, and the room on its right
@@ -3280,6 +3375,11 @@ index 0000000000000000000000000000000000000000..56877b6bff03452ed117a4ae9872015c
 +  int top_bar = 0;
 +  // The colour of the top bar's text, for the window buttons' symbols.
 +  std::optional<SkColor> top_bar_foreground;
++  // The top bar's colour: the card behind the bar is painted in it.
++  std::optional<SkColor> top_bar_background;
++  // The Space's grain texture (a shell PNG name), and its 0..1 strength.
++  std::optional<std::string> texture;
++  double texture_strength = 0;
 +
 +  bool operator==(const FlechaFrameState&) const = default;
 +
@@ -3291,14 +3391,23 @@ index 0000000000000000000000000000000000000000..56877b6bff03452ed117a4ae9872015c
 +
 +  // The room above the page area for the top bar. Windows keeps room for the
 +  // window buttons even without a top bar.
++  // A bar thinner than the window buttons: the retracted bar's edge strip (the
++  // pointer reaching it brings the bar back, with the address in the sidebar),
++  // or the bar sliding in or out. It holds no window buttons.
++  bool TopBarIsThin() const {
++    return top_bar > 0 && top_bar < kFlechaWindowButtonsHeight;
++  }
++
 +  int TopBarRoom() const {
 +    // Retracted by the shell: the page takes the room.
 +    if (top_bar < 0) {
 +      return 0;
 +    }
 +#if BUILDFLAG(IS_WIN)
-+    if (!fullscreen) {
-+      return std::max(top_bar, kFlechaWindowButtonsHeight);
++    // Without a top bar Windows keeps room for the window buttons; any bar the
++    // shell sizes is as tall as it says, so it can slide.
++    if (!fullscreen && top_bar == 0) {
++      return kFlechaWindowButtonsHeight;
 +    }
 +#endif
 +    return top_bar;
@@ -3355,6 +3464,11 @@ index 0000000000000000000000000000000000000000..56877b6bff03452ed117a4ae9872015c
 +    }
 +    gfx::Rect page(window_size);
 +    page.Inset(PageInsets());
++    // A thin bar reaches up over the gap above it to the window's top, so the
++    // pointer finds it anywhere along the top edge. It draws nothing there.
++    if (TopBarIsThin()) {
++      return gfx::Rect(page.x(), 0, page.width(), kFlechaGap + TopBarRoom());
++    }
 +    return gfx::Rect(page.x(), kFlechaGap, page.width(), TopBarRoom());
 +  }
 +
@@ -3366,6 +3480,10 @@ index 0000000000000000000000000000000000000000..56877b6bff03452ed117a4ae9872015c
 +      return gfx::Rect(window_size.width() - kFlechaGap - width,
 +                       (kFlechinhaToolbarHeight - kFlechaWindowButtonsHeight) / 2,
 +                       width, kFlechaWindowButtonsHeight);
++    }
++    // A thin bar has no room for them: they come back with the whole bar.
++    if (TopBarIsThin()) {
++      return gfx::Rect();
 +    }
 +    gfx::Rect page(window_size);
 +    page.Inset(PageInsets());
@@ -4503,6 +4621,48 @@ index 07ff3566c110c9a29950070f9f773d00d70fbeea..b7dc20625d8ab050f523187b187b3b46
      ":browser_view_layout",
      ":browser_view_layout_delegate_impl",
      ":browser_widget",
+diff --git a/chrome/browser/ui/views/frame/browser_desktop_window_tree_host_win.cc b/chrome/browser/ui/views/frame/browser_desktop_window_tree_host_win.cc
+index bf13db120fc1e011f2562c7e9a9e8074c81cc0b0..04492381522305731ca8bf80c8d846325dcfd759 100644
+--- a/chrome/browser/ui/views/frame/browser_desktop_window_tree_host_win.cc
++++ b/chrome/browser/ui/views/frame/browser_desktop_window_tree_host_win.cc
+@@ -29,6 +29,7 @@
+ #include "chrome/browser/ui/views/frame/browser_frame_view_win.h"
+ #include "chrome/browser/ui/views/frame/browser_view.h"
+ #include "chrome/browser/ui/views/frame/browser_widget.h"
++#include "chrome/browser/ui/views/frame/flecha_frame_view.h"
+ #include "chrome/browser/ui/views/frame/browser_window_property_manager_win.h"
+ #include "chrome/browser/ui/views/frame/system_menu_insertion_delegate_win.h"
+ #include "chrome/browser/ui/views/frame/tab_strip_region_view.h"
+@@ -415,6 +416,29 @@ bool BrowserDesktopWindowTreeHostWin::PreHandleMSG(UINT message,
+     case WM_ENDSESSION:
+       chrome::SessionEnding();
+       return true;
++    // Flecha: a right-click on the shell's drag ground (HTCAPTION) opens the
++    // shell's own Space menu, opened here on the release (FlechaDragHandler
++    // takes the press). Left to HWNDMessageHandler, the release would open
++    // Windows' system menu, whose modal loop freezes the window.
++    case WM_RBUTTONUP:
++      if (FlechaFrameView* flecha_frame =
++              FlechaFrameView::From(browser_view_.get())) {
++        POINT screen_point = {static_cast<short>(LOWORD(l_param)),
++                              static_cast<short>(HIWORD(l_param))};
++        ::MapWindowPoints(GetHWND(), HWND_DESKTOP, &screen_point, 1);
++        const LRESULT hit = ::SendMessage(
++            GetHWND(), WM_NCHITTEST, 0,
++            MAKELPARAM(screen_point.x, screen_point.y));
++        if (hit == HTCAPTION || hit == HTSYSMENU) {
++          ::ReleaseCapture();
++          flecha_frame->OpenFrameContextMenu(gfx::ToFlooredPoint(
++              display::win::GetScreenWin()->ScreenToDIPPoint(
++                  gfx::PointF(screen_point.x, screen_point.y))));
++          *result = 0;
++          return true;
++        }
++      }
++      break;
+     case WM_INITMENUPOPUP:
+       if (UsesNativeSystemMenu()) {
+         GetSystemMenu()->UpdateStates();
 diff --git a/chrome/browser/ui/views/frame/browser_frame_view_win.cc b/chrome/browser/ui/views/frame/browser_frame_view_win.cc
 index 1928290402cc1b3d3bbddb8398c137df1ec04978..8dc6d8448a1f99a2d382accb307d68e22cc7d66d 100644
 --- a/chrome/browser/ui/views/frame/browser_frame_view_win.cc
@@ -4804,15 +4964,67 @@ index 928a723e2e2275985432ffdf32c8e2063d9477d4..a434ae7bdb68451a5ef5a220580dc91e
        std::move(layout_views)));
 diff --git a/chrome/browser/ui/views/frame/flecha_frame_view.cc b/chrome/browser/ui/views/frame/flecha_frame_view.cc
 new file mode 100644
-index 0000000000000000000000000000000000000000..f5be9720de62488f5f383c6a3033cbe3fe4b623a
+index 0000000000000000000000000000000000000000..ffb148a651f8be152ad9c10320db58cde14728ee
 --- /dev/null
 +++ b/chrome/browser/ui/views/frame/flecha_frame_view.cc
-@@ -0,0 +1,933 @@
+@@ -0,0 +1,1213 @@
 +// Copyright 2026 The Flecha Authors
 +// Use of this source code is governed by a BSD-style license that can be
 +// found in the LICENSE file.
 +
 +#include "chrome/browser/ui/views/frame/flecha_frame_view.h"
++
++#include <cmath>
++#include <set>
++#include <string>
++
++#include "base/containers/flat_map.h"
++#include "base/containers/span.h"
++#include "base/files/file_util.h"
++#include "base/memory/raw_ptr.h"
++#include "base/no_destructor.h"
++#include "base/path_service.h"
++#include "chrome/common/chrome_paths.h"
++#include "ui/gfx/image/image.h"
++#include "content/public/browser/render_widget_host_view.h"
++#include "ui/aura/window.h"
++#include "ui/native_theme/native_theme.h"
++#include "ui/views/controls/webview/web_contents_set_background_color.h"
++
++namespace {
++
++// Frames whose page still covers the window, waiting for the shell's first
++// setFrame.
++std::set<const FlechaFrameView*>& AwaitingLayout() {
++  static base::NoDestructor<std::set<const FlechaFrameView*>> frames;
++  return *frames;
++}
++
++// The window's plain colour before the shell paints it, as the shell's own
++// window page uses meanwhile (styles.css).
++SkColor CoverColor() {
++  return ui::NativeTheme::GetInstanceForNativeUi()->preferred_color_scheme() ==
++                 ui::NativeTheme::PreferredColorScheme::kDark
++             ? SkColorSetRGB(0x10, 0x10, 0x12)
++             : SkColorSetRGB(0xf1, 0xf1, 0xf3);
++}
++
++// Makes the frame page transparent again, now and for any renderer it gets.
++void ClearCover(content::WebContents* contents) {
++  if (!contents) {
++    return;
++  }
++  contents->RemoveUserData(
++      views::WebContentsSetBackgroundColor::UserDataKey());
++  views::WebContentsSetBackgroundColor::CreateForWebContentsWithColor(
++      contents, SK_ColorTRANSPARENT);
++  if (content::RenderWidgetHostView* view =
++          contents->GetPrimaryMainFrame()->GetView()) {
++    view->SetBackgroundColor(SK_ColorTRANSPARENT);
++  }
++}
++
++}  // namespace
 +
 +#include "chrome/browser/profiles/profile.h"
 +#include "components/prefs/pref_service.h"
@@ -4839,6 +5051,9 @@ index 0000000000000000000000000000000000000000..f5be9720de62488f5f383c6a3033cbe3
 +#include "chrome/browser/ui/navigator/browser_navigator_params.h"
 +#include "chrome/browser/ui/tabs/tab_strip_model.h"
 +#include "content/public/browser/web_contents_observer.h"
++#include "ui/events/event.h"
++#include "ui/gfx/draggable_region.h"
++#include "ui/views/view.h"
 +#include "third_party/blink/public/mojom/window_features/window_features.mojom.h"
 +#include "ui/events/keycodes/keyboard_codes.h"
 +#include "ui/gfx/canvas.h"
@@ -4896,6 +5111,36 @@ index 0000000000000000000000000000000000000000..f5be9720de62488f5f383c6a3033cbe3
 +  return *grain;
 +}
 +
++// The Space's grain texture, from the shell's own PNGs (ui/*-bg.png). Only the
++// textures the picker offers; the frame keeps its own grain without a texture.
++const gfx::ImageSkia* SpaceTexture(const std::string& name) {
++  if (name != "grain" && name != "sand" && name != "denim" &&
++      name != "tweed") {
++    return nullptr;
++  }
++  static base::NoDestructor<base::flat_map<std::string, gfx::ImageSkia>> cache;
++  auto it = cache->find(name);
++  if (it != cache->end()) {
++    return it->second.isNull() ? nullptr : &it->second;
++  }
++  gfx::ImageSkia texture;
++  base::FilePath dir;
++  if (base::PathService::Get(chrome::DIR_RESOURCES, &dir)) {
++    const base::FilePath path =
++        dir.AppendASCII("flecha-shell").AppendASCII(name + "-bg.png");
++    std::string bytes;
++    if (base::ReadFileToString(path, &bytes)) {
++      gfx::Image decoded =
++          gfx::Image::CreateFrom1xPNGBytes(base::as_byte_span(bytes));
++      if (!decoded.IsEmpty()) {
++        texture = decoded.AsImageSkia();
++      }
++    }
++  }
++  auto result = cache->emplace(name, std::move(texture));
++  return result.first->second.isNull() ? nullptr : &result.first->second;
++}
++
 +class FlechaFrameBackgroundView : public views::View {
 +  METADATA_HEADER(FlechaFrameBackgroundView, views::View)
 +
@@ -4935,7 +5180,7 @@ index 0000000000000000000000000000000000000000..f5be9720de62488f5f383c6a3033cbe3
 +    } else {
 +      canvas->DrawColor(state_.background);
 +    }
-+    canvas->TileImageInt(FrameGrain(), 0, 0, view->width(), view->height());
++    PaintSpaceTexture(canvas, view);
 +    gfx::Rect page = view->GetLocalBounds();
 +    page.Inset(view->GetInsets());
 +    // A page area that fills the window (fullscreen, sidebar hidden) has no
@@ -4957,10 +5202,6 @@ index 0000000000000000000000000000000000000000..f5be9720de62488f5f383c6a3033cbe3
 +    // would show only in the gaps above and below the page, cut straight at
 +    // the sidebar's edge; keep the shape that far in on that side instead.
 +    gfx::RectF shape(page);
-+    // The top bar joins the page area: one card, one shadow.
-+    if (const gfx::Rect bar = state_.TopBarBounds(view->size()); !bar.IsEmpty()) {
-+      shape.Union(gfx::RectF(bar));
-+    }
 +    if (!state_.flechinha &&
 +        state_.sidebar == FlechaFrameState::Sidebar::kDocked) {
 +      shape.Inset(gfx::InsetsF::TLBR(0, 14, 0, 0));
@@ -4970,9 +5211,57 @@ index 0000000000000000000000000000000000000000..f5be9720de62488f5f383c6a3033cbe3
 +    flags.setColor(dark ? SkColorSetRGB(0x1f, 0x1f, 0x1f) : SK_ColorWHITE);
 +    flags.setLooper(gfx::CreateShadowDrawLooper(shadows));
 +    canvas->DrawRoundRect(shape, kFlechaPageCornerRadius, flags);
++    // The top bar joins the page area: one card. Its part is drawn over the
++    // page's from the bar's own left edge (the page's part keeps its inset
++    // beside a docked sidebar) and down past the bar's bottom, under the page,
++    // so a see-through bar shows the card exactly behind it from the first
++    // frame. A thin bar (the edge strip, or the bar sliding) draws nothing, so
++    // the page stays a card of its own.
++    if (const gfx::Rect bar = state_.TopBarBounds(view->size());
++        !bar.IsEmpty() && !state_.TopBarIsThin()) {
++      gfx::RectF bar_shape(bar);
++      bar_shape.set_height(bar_shape.height() + kFlechaPageCornerRadius);
++      // In the bar's own colour, when the shell says it.
++      if (state_.top_bar_background) {
++        flags.setColor(*state_.top_bar_background);
++      }
++      canvas->DrawRoundRect(bar_shape, kFlechaPageCornerRadius, flags);
++    }
 +  }
 +
 + private:
++  // The Space's texture over the window's colour: the shell's PNG tiled at the
++  // same size and strength as its CSS grain. No theme keeps the frame's own
++  // fine grain; a theme with no texture paints none.
++  void PaintSpaceTexture(gfx::Canvas* canvas, views::View* view) const {
++    if (!state_.texture) {
++      canvas->TileImageInt(FrameGrain(), 0, 0, view->width(), view->height());
++      return;
++    }
++    if (*state_.texture == "none" || state_.texture_strength <= 0) {
++      return;
++    }
++    const gfx::ImageSkia* texture = SpaceTexture(*state_.texture);
++    if (!texture) {
++      return;
++    }
++    // Zen's grain tile, and its opacity in the picker's CSS (styles.css).
++    const bool grain = *state_.texture == "grain";
++    const int tile = grain ? 155 : 100;
++    const double alpha =
++        grain ? 0.7 : (*state_.texture == "sand" ? 0.3 : 0.85);
++    const double strength = std::clamp(state_.texture_strength, 0.0, 1.0);
++    canvas->SaveLayerAlpha(static_cast<uint8_t>(
++        std::lround(std::clamp(255.0 * alpha * strength, 0.0, 255.0))));
++    for (int y = 0; y < view->height(); y += tile) {
++      for (int x = 0; x < view->width(); x += tile) {
++        canvas->DrawImageInt(*texture, 0, 0, texture->width(),
++                             texture->height(), x, y, tile, tile, false);
++      }
++    }
++    canvas->Restore();
++  }
++
 +  const FlechaFrameState state_;
 +};
 +
@@ -5180,6 +5469,7 @@ index 0000000000000000000000000000000000000000..f5be9720de62488f5f383c6a3033cbe3
 +}
 +
 +FlechaFrameView::~FlechaFrameView() {
++  AwaitingLayout().erase(this);
 +  UnregisterShortcuts();
 +  if (auto* peek_view = views::AsViewClass<views::WebView>(peek_view_.view())) {
 +    peek_view->SetWebContents(nullptr);
@@ -5342,8 +5632,137 @@ index 0000000000000000000000000000000000000000..f5be9720de62488f5f383c6a3033cbe3
 +  }
 +}
 +
++// Moves the window once a press on one of the shell pages' -webkit-app-region
++// drag regions is dragged past the threshold. The regions live in child views
++// (the sidebar's frame page and the top bar), whose views the aura event
++// routing reaches before the frame's own hit test, so the move has to start
++// here — the same way OmniboxEverywhere's panel drags. Patterned after
++// OmniboxEverywhereEventHandlerAura.
++class FlechaDragHandler : public ui::EventHandler {
++ public:
++  explicit FlechaDragHandler(FlechaFrameView* frame) : frame_(frame) {}
++
++  void OnMouseEvent(ui::MouseEvent* event) override {
++    views::Widget* widget = frame_->GetWidget();
++    if (!widget || widget->IsFullscreen() || (event->flags() & ui::EF_FROM_TOUCH)) {
++      return;
++    }
++    const gfx::Point cursor_screen = GetEventScreenPoint(event, widget);
++    switch (event->type()) {
++      case ui::EventType::kMousePressed:
++        // A right press on a drag region is the shell's own Space menu, not
++        // the native window menu. On Windows it opens on the release, where
++        // the window menu would (BrowserDesktopWindowTreeHostWin), as context
++        // menus do there.
++        if (event->IsRightMouseButton() &&
++            frame_->IsPointInDraggableRegion(cursor_screen)) {
++          event->SetHandled();
++#if !BUILDFLAG(IS_WIN)
++          frame_->OpenFrameContextMenu(cursor_screen);
++#endif
++          return;
++        }
++        if (event->IsOnlyLeftMouseButton() &&
++            frame_->IsPointInDraggableRegion(cursor_screen)) {
++          // A double click on the caption maximizes, and maximizes back.
++          if (event->flags() & ui::EF_IS_DOUBLE_CLICK) {
++            drag_init_point_screen_.reset();
++            event->SetHandled();
++            if (widget->IsMaximized()) {
++              widget->Restore();
++            } else {
++              widget->Maximize();
++            }
++            return;
++          }
++          drag_init_point_screen_ = cursor_screen;
++        } else {
++          drag_init_point_screen_.reset();
++        }
++        break;
++      case ui::EventType::kMouseDragged:
++        if (drag_init_point_screen_.has_value()) {
++          const gfx::Vector2d delta =
++              cursor_screen - *drag_init_point_screen_;
++          if (views::View::ExceededDragThreshold(delta)) {
++            drag_init_point_screen_.reset();
++            event->SetHandled();
++            // A maximized window follows the cursor from its restored size, as
++            // a caption drag does in Windows.
++            if (widget->IsMaximized()) {
++              widget->Restore();
++            }
++            const gfx::Vector2d drag_offset =
++                widget->GetWindowBoundsInScreen().origin() - cursor_screen;
++            widget->RunMoveLoop(drag_offset,
++                                views::Widget::MoveLoopSource::kMouse,
++                                views::Widget::MoveLoopEscapeBehavior::kDontHide);
++          }
++        }
++        break;
++      case ui::EventType::kMouseReleased:
++      case ui::EventType::kMouseCaptureChanged:
++        drag_init_point_screen_.reset();
++        break;
++      default:
++        break;
++    }
++  }
++
++ private:
++  static gfx::Point GetEventScreenPoint(const ui::LocatedEvent* event,
++                                        views::Widget* widget) {
++    gfx::Point location = event->location();
++    if (auto* target_window = static_cast<aura::Window*>(event->target());
++        target_window && widget->GetNativeView()) {
++      aura::Window::ConvertPointToTarget(target_window,
++                                         widget->GetNativeView(), &location);
++    }
++    views::View* root_view = widget->GetRootView();
++    return root_view
++               ? views::View::ConvertPointToScreen(root_view, location)
++               : event->root_location();
++  }
++
++  raw_ptr<FlechaFrameView> frame_;
++  std::optional<gfx::Point> drag_init_point_screen_;
++};
++
++bool FlechaFrameView::IsPointInDraggableRegion(
++    const gfx::Point& screen_point) const {
++  gfx::Point point(screen_point);
++  views::View::ConvertPointFromScreen(this, &point);
++  if (draggable_region_.contains(point.x(), point.y())) {
++    return true;
++  }
++  const views::View* top_bar = top_bar_view_.view();
++  if (top_bar && top_bar->GetVisible()) {
++    gfx::Point bar_point(screen_point);
++    views::View::ConvertPointFromScreen(top_bar, &bar_point);
++    if (top_bar_draggable_region_.contains(bar_point.x(), bar_point.y())) {
++      return true;
++    }
++  }
++  return false;
++}
++
++void FlechaFrameView::OpenFrameContextMenu(const gfx::Point& screen_point) {
++  // Where the menu goes, in the frame page's coordinates (it fills this view).
++  gfx::Point point(screen_point);
++  views::View::ConvertPointFromScreen(this, &point);
++  base::ListValue args;
++  args.Append(GetWindowId());
++  args.Append(point.x());
++  args.Append(point.y());
++  DispatchFlechaShellEvent(
++      Profile::FromBrowserContext(GetBrowserContext()),
++      "flechaPrivate.onFrameContextMenu", std::move(args));
++}
++
 +void FlechaFrameView::AddedToWidget() {
 +  views::WebView::AddedToWidget();
++  drag_handler_ = new FlechaDragHandler(this);
++  GetWidget()->GetNativeView()->AddPreTargetHandler(drag_handler_.get());
 +  ApplyState();
 +  UpdateShortcuts();
 +  Profile* profile = Profile::FromBrowserContext(GetBrowserContext());
@@ -5355,6 +5774,13 @@ index 0000000000000000000000000000000000000000..f5be9720de62488f5f383c6a3033cbe3
 +
 +void FlechaFrameView::RemovedFromWidget() {
 +  UnregisterShortcuts();
++  if (drag_handler_) {
++    if (auto* native_view = GetWidget() ? GetWidget()->GetNativeView() : nullptr) {
++      native_view->RemovePreTargetHandler(drag_handler_.get());
++    }
++    delete drag_handler_.get();
++    drag_handler_ = nullptr;
++  }
 +  views::WebView::RemovedFromWidget();
 +}
 +
@@ -5452,9 +5878,10 @@ index 0000000000000000000000000000000000000000..f5be9720de62488f5f383c6a3033cbe3
 +}
 +
 +void FlechaFrameView::SetFrameState(const FlechaFrameState& new_state) {
-+  // The shell has laid the window out: the page area shows (see OpenFramePage).
-+  if (views::View* page = browser_view_->contents_container()) {
-+    page->SetVisible(true);
++  // The shell has laid the window out: the frame page's cover comes off (see
++  // OpenFramePage).
++  if (AwaitingLayout().erase(this)) {
++    ClearCover(frame_contents_.get());
 +  }
 +  FlechaFrameState state = new_state;
 +  state.flechinha = state_.flechinha;
@@ -5462,6 +5889,12 @@ index 0000000000000000000000000000000000000000..f5be9720de62488f5f383c6a3033cbe3
 +  state.content_fullscreen = state_.content_fullscreen;
 +  if (state == state_) {
 +    return;
++  }
++  // The hidden sidebar's page has no drag areas, but its empty report is
++  // ignored (DraggableRegionsChanged), so the docked sidebar's would stay and
++  // turn the edge strip into title bar: no hover reaches it to bring it out.
++  if (state.sidebar == FlechaFrameState::Sidebar::kHidden) {
++    draggable_region_.setEmpty();
 +  }
 +  state_ = state;
 +  ApplyState();
@@ -5535,12 +5968,17 @@ index 0000000000000000000000000000000000000000..f5be9720de62488f5f383c6a3033cbe3
 +void FlechaFrameView::DraggableRegionsChanged(
 +    const std::vector<blink::mojom::DraggableRegionPtr>& regions,
 +    content::WebContents* contents) {
-+  // Each page fills its view, so its coordinates are its view's.
++  // Each page fills its view, so its coordinates are its view's. A batch that
++  // arrives empty (a mid-layout report) never undoes a region that works.
 +  if (contents && contents == top_bar_contents_.get()) {
-+    top_bar_draggable_region_ = gfx::DraggableRegionsToSkRegion(regions);
++    if (!regions.empty()) {
++      top_bar_draggable_region_ = gfx::DraggableRegionsToSkRegion(regions);
++    }
 +    return;
 +  }
-+  draggable_region_ = gfx::DraggableRegionsToSkRegion(regions);
++  if (!regions.empty()) {
++    draggable_region_ = gfx::DraggableRegionsToSkRegion(regions);
++  }
 +}
 +
 +blink::mojom::DisplayMode FlechaFrameView::GetDisplayMode(
@@ -5591,9 +6029,8 @@ index 0000000000000000000000000000000000000000..f5be9720de62488f5f383c6a3033cbe3
 +  if (const views::View* top_bar = top_bar_view_.view();
 +      top_bar && top_bar->GetVisible() && top_bar->bounds().Contains(point)) {
 +    const gfx::Point local = point - top_bar->bounds().OffsetFromOrigin();
-+    return top_bar_draggable_region_.contains(local.x(), local.y())
-+               ? HTCAPTION
-+               : HTCLIENT;
++    return top_bar_draggable_region_.contains(local.x(), local.y()) ? HTCAPTION
++                                                                    : HTCLIENT;
 +  }
 +  // The window background around the page area moves the window, as a title
 +  // bar would.
@@ -5650,21 +6087,23 @@ index 0000000000000000000000000000000000000000..f5be9720de62488f5f383c6a3033cbe3
 +  }
 +  // Until the shell lays the window out (its first setFrame), the page area
 +  // stays hidden, so Chromium's own new tab page never flashes at startup.
-+  // Shown again by the shell's first setFrame, or after a few seconds if it
-+  // never comes.
-+  if (views::View* page = browser_view_->contents_container()) {
-+    page->SetVisible(false);
++  // Until the shell first lays the window out, the frame page covers all of
++  // it in an opaque colour (CreateShellPage), so Chromium's own new tab page
++  // never shows while the shell starts. The shell's first setFrame takes the
++  // cover off, or a few seconds do if it never comes.
++  if (!state_.flechinha) {
++    state_.overlay = true;
++    AwaitingLayout().insert(this);
 +    base::SequencedTaskRunner::GetCurrentDefault()->PostDelayedTask(
 +        FROM_HERE,
 +        base::BindOnce(
 +            [](base::WeakPtr<FlechaFrameView> frame) {
-+              if (!frame) {
++              if (!frame || !AwaitingLayout().erase(frame.get())) {
 +                return;
 +              }
-+              if (views::View* page =
-+                      frame->browser_view_->contents_container()) {
-+                page->SetVisible(true);
-+              }
++              ClearCover(frame->frame_contents_.get());
++              frame->state_.overlay = false;
++              frame->ApplyState();
 +            },
 +            weak_factory_.GetWeakPtr()),
 +        base::Seconds(5));
@@ -5681,9 +6120,11 @@ index 0000000000000000000000000000000000000000..f5be9720de62488f5f383c6a3033cbe3
 +  content::BrowserContext* context = GetBrowserContext();
 +  auto contents = content::WebContents::Create(content::WebContents::CreateParams(
 +      context, content::SiteInstance::CreateForURL(context, url)));
-+  // The page area shows through wherever the page draws nothing.
++  // The page area shows through wherever the page draws nothing; the frame page
++  // starts opaque until the shell first lays the window out (OpenFramePage).
++  const bool frame_page = query.find("kind=") == std::string::npos;
 +  views::WebContentsSetBackgroundColor::CreateForWebContentsWithColor(
-+      contents.get(), SK_ColorTRANSPARENT);
++      contents.get(), frame_page ? CoverColor() : SK_ColorTRANSPARENT);
 +  extensions::SetViewType(contents.get(),
 +                          extensions::mojom::ViewType::kComponent);
 +  extensions::ChromeExtensionWebContentsObserver::CreateForWebContents(
@@ -5712,9 +6153,8 @@ index 0000000000000000000000000000000000000000..f5be9720de62488f5f383c6a3033cbe3
 +  }
 +  SetWebContents(nullptr);
 +  frame_contents_.reset();
-+  // Without the shell the window is Chromium's own again.
-+  if (views::View* page = browser_view_->contents_container()) {
-+    page->SetVisible(true);
++  if (AwaitingLayout().erase(this)) {
++    state_.overlay = false;
 +  }
 +  ApplyState();
 +}
@@ -5743,10 +6183,10 @@ index 0000000000000000000000000000000000000000..f5be9720de62488f5f383c6a3033cbe3
 +END_METADATA
 diff --git a/chrome/browser/ui/views/frame/flecha_frame_view.h b/chrome/browser/ui/views/frame/flecha_frame_view.h
 new file mode 100644
-index 0000000000000000000000000000000000000000..704ddf3060fdd0e5cbe8a06abd7a2c5d5e016ea1
+index 0000000000000000000000000000000000000000..3822054d0c2de878e475388d371aa3dc15da0591
 --- /dev/null
 +++ b/chrome/browser/ui/views/frame/flecha_frame_view.h
-@@ -0,0 +1,213 @@
+@@ -0,0 +1,227 @@
 +// Copyright 2026 The Flecha Authors
 +// Use of this source code is governed by a BSD-style license that can be
 +// found in the LICENSE file.
@@ -5770,6 +6210,7 @@ index 0000000000000000000000000000000000000000..704ddf3060fdd0e5cbe8a06abd7a2c5d
 +#include "ui/views/view_tracker.h"
 +
 +class BrowserView;
++class FlechaDragHandler;
 +
 +namespace views {
 +class FocusManager;
@@ -5830,6 +6271,14 @@ index 0000000000000000000000000000000000000000..704ddf3060fdd0e5cbe8a06abd7a2c5d
 +
 +  // Whether the frame lays out the window (the shell is loaded).
 +  bool IsActive() const { return GetVisible(); }
++
++  // Whether "point" (in screen coordinates) sits on one of the shell pages'
++  // -webkit-app-region drag regions: the sidebar's and the top bar's.
++  bool IsPointInDraggableRegion(const gfx::Point& screen_point) const;
++
++  // Opens the shell's own Space menu for a right-click on a drag region, at
++  // "screen_point" (DIP screen coordinates).
++  void OpenFrameContextMenu(const gfx::Point& screen_point);
 +
 +  // The window's hit test at `point` (in the browser view's coordinates):
 +  // HTCAPTION where the frame page marks -webkit-app-region: drag and in the
@@ -5945,6 +6394,11 @@ index 0000000000000000000000000000000000000000..704ddf3060fdd0e5cbe8a06abd7a2c5d
 +  // The frame page's -webkit-app-region: drag areas, in this view's
 +  // coordinates.
 +  SkRegion draggable_region_;
++
++  // Moves the window when a press on a drag region is dragged past the
++  // threshold (the regions live in child views, whose views the aura event
++  // routing reaches before the frame's own hit test).
++  raw_ptr<FlechaDragHandler> drag_handler_ = nullptr;  // owned; deleted in RemovedFromWidget().
 +  // The top bar page's drag areas, in the top bar view's coordinates.
 +  SkRegion top_bar_draggable_region_;
 +
@@ -6069,18 +6523,19 @@ index c84c47a1190f9acd9602e6cc06badcbf81cf00a2..b19dea7eb14190eefe26beb0a6a23c04
  
  // The layout manager used in chrome browser.
 diff --git a/chrome/browser/ui/views/frame/layout/browser_view_tabbed_layout_impl.cc b/chrome/browser/ui/views/frame/layout/browser_view_tabbed_layout_impl.cc
-index 7764d4a4728973dc075efb308daa3d67ba2e10b6..962b51d99b8d522729bf404df6ca436736a11b35 100644
+index 7764d4a4728973dc075efb308daa3d67ba2e10b6..e44b739826241cdbb34a8b9ee624d2a938a021de 100644
 --- a/chrome/browser/ui/views/frame/layout/browser_view_tabbed_layout_impl.cc
 +++ b/chrome/browser/ui/views/frame/layout/browser_view_tabbed_layout_impl.cc
-@@ -29,6 +29,7 @@
+@@ -29,6 +29,8 @@
  #include "chrome/browser/ui/views/animations/side_panel_animations.h"
  #include "chrome/browser/ui/views/animations/tab_strip_animations.h"
  #include "chrome/browser/ui/views/bookmarks/bookmark_bar_view.h"
 +#include "chrome/browser/flecha/flecha_frame_host.h"
++#include "chrome/browser/ui/views/frame/flecha_frame_view.h"
  #include "chrome/browser/ui/views/frame/custom_corners.h"
  #include "chrome/browser/ui/views/frame/custom_corners_background.h"
  #include "chrome/browser/ui/views/frame/custom_floating_corner.h"
-@@ -1035,6 +1036,25 @@ BrowserViewTabbedLayoutImpl::CalculateProposedLayout(
+@@ -1035,6 +1037,25 @@ BrowserViewTabbedLayoutImpl::CalculateProposedLayout(
                      bottom_corner_visible);
    }
  
@@ -6106,7 +6561,7 @@ index 7764d4a4728973dc075efb308daa3d67ba2e10b6..962b51d99b8d522729bf404df6ca4367
    // When the tabstrip isn't at the top or in constrained widths, the top
    // container is laid out before all side panels.
    if (horizontal_layout.force_top_container_to_top &&
-@@ -1216,8 +1236,11 @@ BrowserViewTabbedLayoutImpl::CalculateProposedLayout(
+@@ -1216,8 +1237,11 @@ BrowserViewTabbedLayoutImpl::CalculateProposedLayout(
    // especially obvious in split view, where turning the separator off provides
    // the required top padding.
    const auto& separator_info = layout_data_->separator_info;
@@ -6119,7 +6574,7 @@ index 7764d4a4728973dc075efb308daa3d67ba2e10b6..962b51d99b8d522729bf404df6ca4367
  
    // Updating the top, left and right insets for contents container view when
    // in split view. This is dependent on a number of other browser states.
-@@ -1240,7 +1263,10 @@ BrowserViewTabbedLayoutImpl::CalculateProposedLayout(
+@@ -1240,7 +1264,10 @@ BrowserViewTabbedLayoutImpl::CalculateProposedLayout(
          include_leading_inset ? default_inset : panel_side_inset, default_inset,
          include_trailing_inset ? default_inset : panel_side_inset);
  
@@ -6131,7 +6586,7 @@ index 7764d4a4728973dc075efb308daa3d67ba2e10b6..962b51d99b8d522729bf404df6ca4367
    }
  
    // Update the multi-contents view about if we will be animating content
-@@ -1418,6 +1444,56 @@ BrowserViewTabbedLayoutImpl::CalculateProposedLayout(
+@@ -1418,6 +1445,62 @@ BrowserViewTabbedLayoutImpl::CalculateProposedLayout(
                      is_scrim_visible);
    }
  
@@ -6169,13 +6624,19 @@ index 7764d4a4728973dc075efb308daa3d67ba2e10b6..962b51d99b8d522729bf404df6ca4367
 +                              frame_height));
 +
 +    // The top bar fills the room above the page area, kFlechaGap down from
-+    // the window's top (FlechaFrameState::TopBarBounds()).
++    // the window's top (FlechaFrameState::TopBarBounds()); a thin one reaches
++    // up over the gap to the window's top, so the pointer finds it anywhere
++    // along the top edge.
 +    if (IsParentedToAndVisible(views().flecha_top_bar, views().browser_view)) {
++      const auto* flecha_frame =
++          views::AsViewClass<FlechaFrameView>(views().flecha_frame.get());
++      const int bar_top =
++          flecha_frame && flecha_frame->state().TopBarIsThin() ? 0 : kFlechaGap;
 +      layout.AddChild(views().flecha_top_bar,
-+                      gfx::Rect(page_area.x(), window.y() + kFlechaGap,
++                      gfx::Rect(page_area.x(), window.y() + bar_top,
 +                                page_area.width(),
 +                                std::max(0, page_area.y() - window.y() -
-+                                                kFlechaGap)));
++                                                bar_top)));
 +    }
 +
 +    // Peek floats over the page area, above the frame page, which draws the
@@ -6188,7 +6649,7 @@ index 7764d4a4728973dc075efb308daa3d67ba2e10b6..962b51d99b8d522729bf404df6ca4367
    return layout;
  }
  
-@@ -1595,6 +1671,29 @@ void BrowserViewTabbedLayoutImpl::DoPostLayoutVisualAdjustments(
+@@ -1595,6 +1678,35 @@ void BrowserViewTabbedLayoutImpl::DoPostLayoutVisualAdjustments(
      views().multi_contents_view->SetBackgroundRadii(content_corners);
    }
  
@@ -6202,10 +6663,16 @@ index 7764d4a4728973dc075efb308daa3d67ba2e10b6..962b51d99b8d522729bf404df6ca4367
 +      const bool page_fills_window =
 +          views().flecha_frame_background &&
 +          views().flecha_frame_background->GetInsets().IsEmpty();
-+      // Under the top bar, the page area's top corners are the bar's.
++      // Under the top bar, the page area's top corners are the bar's; a thin
++      // bar (the edge strip, or the bar sliding) draws nothing, so they stay
++      // the page's own.
 +      const float radius = page_fills_window ? 0 : kFlechaPageCornerRadius;
++      const auto* flecha_frame =
++          views::AsViewClass<FlechaFrameView>(views().flecha_frame.get());
++      const bool thin_bar = flecha_frame && flecha_frame->state().TopBarIsThin();
 +      const float top_radius =
-+          IsParentedToAndVisible(views().flecha_top_bar, views().browser_view)
++          IsParentedToAndVisible(views().flecha_top_bar, views().browser_view) &&
++                  !thin_bar
 +              ? 0
 +              : radius;
 +      views().multi_contents_view->SetBackgroundRadii(
@@ -6695,10 +7162,10 @@ index acdc60b6758544aabf434ead3a754b9b1c74e4c3..6bfabf0b4b1e9242302b7ef95d8e0751
      "language_settings_private.webidl",
 diff --git a/chrome/common/extensions/api/flecha_private.idl b/chrome/common/extensions/api/flecha_private.idl
 new file mode 100644
-index 0000000000000000000000000000000000000000..c9150ac4a5c831e555562ea3281b3e2b59d5359c
+index 0000000000000000000000000000000000000000..7fa35cc074b19c2318d03e224ef2f4c2d262eaee
 --- /dev/null
 +++ b/chrome/common/extensions/api/flecha_private.idl
-@@ -0,0 +1,352 @@
+@@ -0,0 +1,381 @@
 +// Copyright 2026 The Flecha Authors
 +// Use of this source code is governed by a BSD-style license that can be
 +// found in the LICENSE file.
@@ -6758,6 +7225,14 @@ index 0000000000000000000000000000000000000000..c9150ac4a5c831e555562ea3281b3e2b
 +    long? topBar;
 +    // The top bar's text colour as #rrggbb, for the window buttons' symbols.
 +    DOMString? topBarForeground;
++    // The top bar's colour as #rrggbb: the browser paints the card behind the
++    // bar in it, so a see-through bar shows it from the first frame.
++    DOMString? topBarBackground;
++    // The Space's grain texture: none, grain, sand, denim or tweed. Absent
++    // keeps the frame's own fine grain.
++    DOMString? texture;
++    // The texture's strength, 0..1.
++    double? textureStrength;
 +  };
 +
 +  // A button of the sidebar's song card.
@@ -6773,6 +7248,10 @@ index 0000000000000000000000000000000000000000..c9150ac4a5c831e555562ea3281b3e2b
 +    DOMString album;
 +    boolean canNext;
 +    boolean canPrevious;
++    // Playback position and duration, in seconds; the duration is 0 when the
++    // page says none.
++    double position;
++    double duration;
 +  };
 +
 +  callback MediaCallback = void(optional MediaInfo info);
@@ -6786,6 +7265,12 @@ index 0000000000000000000000000000000000000000..c9150ac4a5c831e555562ea3281b3e2b
 +  callback DoneCallback = void();
 +  callback AllowedCallback = void(boolean allowed);
 +  callback WindowIdCallback = void(long windowId);
++    dictionary WindowSize {
++    long width;
++    long height;
++  };
++
++  callback WindowSizeCallback = void(optional WindowSize size);
 +  callback RejectedCallback = void(DOMString[] rejected);
 +  callback TabIdCallback = void(long tabId);
 +  callback WindowIdsCallback = void(long[] windowIds);
@@ -6887,6 +7372,9 @@ index 0000000000000000000000000000000000000000..c9150ac4a5c831e555562ea3281b3e2b
 +    // The window the calling frame page belongs to.
 +    static void getWindowId(WindowIdCallback callback);
 +
++    // The browser window's size, in DIPs.
++    static void getWindowSize(WindowSizeCallback callback);
++
 +    // Flecha's keyboard shortcuts: <code>shortcuts</code> maps Electron
 +    // accelerators ("CmdOrCtrl+Shift+T") to the shell's command ids. Flecha
 +    // windows take these keys before the page and before Chromium's own
@@ -6914,6 +7402,9 @@ index 0000000000000000000000000000000000000000..c9150ac4a5c831e555562ea3281b3e2b
 +
 +    // What the tab is playing; no <code>info</code> when it has no media.
 +    static void getMedia(long tabId, MediaCallback callback);
++
++    // Jumps the tab's media to this many seconds in.
++    static void seekMedia(long tabId, double seconds);
 +
 +    // The page's colour as #rrggbb, for the top bar: its theme-color, else
 +    // its background once painted; nothing if it has neither yet.
@@ -7049,6 +7540,11 @@ index 0000000000000000000000000000000000000000..c9150ac4a5c831e555562ea3281b3e2b
 +    // A window's Peek opened, moved, navigated or closed (no
 +    // <code>peek</code>).
 +    static void onPeekChanged(long windowId, optional PeekState peek);
++
++    // The frame page's -webkit-app-region ground was right-clicked: the shell
++    // shows its own Space menu in this window instead of the native one, at
++    // <code>x</code>, <code>y</code> in the frame page.
++    static void onFrameContextMenu(long windowId, long x, long y);
 +  };
 +};
 diff --git a/chrome/common/extensions/permissions/chrome_api_permissions.cc b/chrome/common/extensions/permissions/chrome_api_permissions.cc

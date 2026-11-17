@@ -4,13 +4,14 @@
     <meta charset="utf-8" />
     <meta
       http-equiv="Content-Security-Policy"
-      content="default-src 'self'; font-src 'self'; img-src * data: favicon:; style-src 'self'; script-src 'self'"
+      content="default-src 'self'; font-src 'self'; img-src * data: favicon: chrome://extension-icon; style-src 'self'; script-src 'self'"
     />
     <title>Perseu</title>
     <link rel="stylesheet" href="tokens.css" />
     <link rel="stylesheet" href="topbar.css" />
   </head>
   <body>
+    <div id="home-sky" aria-hidden="true" hidden><img src="sky/night-1200.jpg" alt="" draggable="false" /></div>
     <header id="bar">
       <div id="nav">
         <button id="back" class="icon-button" aria-label="Back" disabled><i data-icon="arrowLeft"></i></button>
@@ -23,6 +24,7 @@
         <button id="site-controls" class="icon-button" aria-label="Site controls" aria-haspopup="dialog"><i data-icon="sliders"></i></button>
       </div>
       <button id="zoom" type="button" hidden></button>
+      <div id="extensions" role="group" aria-label="Pinned extensions" hidden></div>
       <button id="app-menu" class="icon-button" aria-label="Browser menu" aria-haspopup="menu"><i data-icon="moreVertical"></i></button>
       <div id="toast" role="status" aria-live="polite" hidden></div>
     </header>

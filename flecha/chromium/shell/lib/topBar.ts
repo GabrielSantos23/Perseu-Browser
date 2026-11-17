@@ -1,9 +1,11 @@
 /** The bar on top of the page area (window.html?kind=topbar): its height, and its colours. */
 export const TOP_BAR_HEIGHT = 34;
+/** The retracted bar's hover strip; the browser puts no window buttons in a bar thinner than them. */
+export const TOP_EDGE_HEIGHT = 6;
 
-/** The page's colour, or the home screen's (white / black) before the page says one. */
-export function topBarColors(siteColor: string | undefined, dark: boolean) {
-  const bg = siteColor ?? (dark ? '#000000' : '#ffffff');
+/** The page's colour, or the home's sky (#1a1d25, the new tab's base) before the page says one. */
+export function topBarColors(siteColor: string | undefined) {
+  const bg = siteColor ?? '#1a1d25';
   return { bg, fg: isDark(bg) ? '#f5f5f7' : '#1d1d1f' };
 }
 

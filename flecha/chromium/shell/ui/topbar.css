@@ -10,6 +10,29 @@ body {
   user-select: none;
 }
 
+/* The home's titlebar is the sky: the strip draws the night sky itself, sized
+   and placed so it continues the page's own sky at its top edge. The window
+   buttons stay native, over its right end. */
+#home-sky {
+  position: fixed;
+  inset: 0;
+  overflow: hidden;
+  pointer-events: none;
+}
+
+#home-sky[hidden] {
+  display: none;
+}
+
+#home-sky img {
+  position: absolute;
+  top: var(--img-top, 0);
+  left: 50%;
+  width: var(--sw, 100vw);
+  max-width: none;
+  translate: -50% 0;
+}
+
 #bar {
   --window-buttons: 138px;
   position: relative;
@@ -26,6 +49,12 @@ body {
     background 360ms ease,
     color 360ms ease;
   -webkit-app-region: drag;
+}
+
+/* On the home the bar is glass over the sky, not a card of its own. */
+#bar[data-sky] {
+  background: rgb(8 12 22 / 0.4);
+  box-shadow: inset 0 -0.5px 0 rgb(255 255 255 / 0.14);
 }
 
 button {
@@ -171,6 +200,41 @@ button {
 #zoom[hidden] {
   display: none;
 }
+
+/* The pinned extensions, beside the browser menu, as a toolbar's. */
+#extensions {
+  display: flex;
+  gap: 2px;
+  margin-left: auto;
+  margin-right: 34px;
+}
+
+#extensions[hidden] {
+  display: none;
+}
+
+#zoom:has(+ #extensions:not([hidden])) {
+  margin-right: 4px;
+}
+
+#zoom:not([hidden]) + #extensions {
+  margin-left: 0;
+}
+
+.extension img,
+.extension .letter {
+  width: 16px;
+  height: 16px;
+  border-radius: 4px;
+}
+
+.extension .letter {
+  display: grid;
+  place-items: center;
+  background: color-mix(in srgb, var(--site-fg, #1d1d1f) 18%, transparent);
+  font-size: 10px;
+  font-weight: 600;
+}
 #zoom:hover {
   background: color-mix(in srgb, var(--site-fg, #1d1d1f) 12%, transparent);
 }
@@ -196,6 +260,37 @@ button {
   from {
     opacity: 0;
   }
+}
+
+/* With the address in the sidebar the bar comes back (on the pointer reaching the top) as a bare
+   strip: see-through, so it is the page card the browser draws behind the bar (flecha_frame_view.cc,
+   there from the first frame, where this page's own paint would come a moment later), with only
+   the window buttons in it. No drag ground: over one Windows takes the pointer as on a title bar and
+   this page stops hearing it move or leave, so it couldn't tell the pointer went back to the page
+   and close. The window still moves by the sidebar's ground. */
+#bar[data-bare] {
+  background: transparent;
+  box-shadow: none;
+  -webkit-app-region: no-drag;
+}
+
+#bar[data-bare] > :not(#toast) {
+  display: none;
+}
+
+/* Thin (the retracted bar's edge strip over the top gap, or the bar sliding in or out): nothing
+   drawn, so the window and the page's own card show, and no drag ground, so the pointer's arrival
+   reaches this page and brings the bar back. Listed no-drag rather than hidden, so the page's
+   region list replaces the bar's old drag ground. */
+html[data-thin] #bar {
+  background: transparent;
+  box-shadow: none;
+  -webkit-app-region: no-drag;
+}
+
+html[data-thin] #bar > *,
+html[data-thin] #home-sky {
+  display: none !important;
 }
 
 /* Fullscreen has no window buttons (flecha_frame_view.cc hides them). */
@@ -230,4 +325,52 @@ button:focus-visible {
     animation: none;
     background-size: 100% 100%, 100% 100%;
   }
+}
+
+/* The Space's grain over the bar too, not just the sidebar (Zen paints its whole chrome). */
+#bar::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  z-index: 0;
+  border-radius: inherit;
+  pointer-events: none;
+  background-image: var(--zen-grain-texture, none);
+  background-size: var(--zen-grain-tile) var(--zen-grain-tile);
+  image-rendering: var(--zen-grain-rendering, auto);
+  opacity: calc(var(--zen-grain-strength, 0) * var(--zen-grain-alpha, 0));
+  transition: opacity 0.2s ease-in-out;
+}
+
+#bar > * {
+  position: relative;
+  z-index: 1;
+}
+
+html[data-space-texture='grain'] {
+  --zen-grain-texture: url('grain-bg.png');
+  --zen-grain-tile: 155px;
+  --zen-grain-alpha: 0.7;
+  --zen-grain-rendering: pixelated;
+}
+
+html[data-space-texture='sand'] {
+  --zen-grain-texture: url('sand-bg.png');
+  --zen-grain-tile: 100px;
+  --zen-grain-alpha: 0.3;
+  --zen-grain-rendering: auto;
+}
+
+html[data-space-texture='denim'] {
+  --zen-grain-texture: url('denim-bg.png');
+  --zen-grain-tile: 100px;
+  --zen-grain-alpha: 0.85;
+  --zen-grain-rendering: auto;
+}
+
+html[data-space-texture='tweed'] {
+  --zen-grain-texture: image-set(url('tweed-bg-1x.png') 1x, url('tweed-bg-1.5x.png') 1.5x, url('tweed-bg.png') 2x);
+  --zen-grain-tile: 100px;
+  --zen-grain-alpha: 0.85;
+  --zen-grain-rendering: auto;
 }
