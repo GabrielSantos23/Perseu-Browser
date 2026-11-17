@@ -573,7 +573,7 @@ async function start() {
     if (id && store.activeSpace.activeTabId !== id) store.activate(id);
   }
 
-  function onRemoved(chromeId: number) {
+  function onRemoved(chromeId: number, info?: chrome.tabs.OnRemovedInfo) {
     siteColors.delete(chromeId);
     if (ours.delete(chromeId)) return;
     if (chromeId === placeholder) placeholder = undefined;
@@ -582,6 +582,14 @@ async function start() {
     live.delete(id);
     livePartition.delete(id);
     rememberLive();
+    // The window closing (quitting the browser, say) isn't closing its tabs: they and the
+    // selected one must come back as they were, not unselected or archived.
+    if (info?.isWindowClosing) {
+      // The next save would come after the browser has stopped: write the state out now, so
+      // the tab selected on a website is the one that opens next time.
+      store.saveNow();
+      return;
+    }
     store.closeTab(id);
   }
 
@@ -1205,7 +1213,7 @@ registerDownloads();
 chrome.tabs.onCreated.addListener((tab) => void ready.then((r) => r.onCreated(tab)));
 chrome.tabs.onUpdated.addListener((id, info, tab) => void ready.then((r) => r.onUpdated(id, info, tab)));
 chrome.tabs.onActivated.addListener((info) => void ready.then((r) => r.onActivated(info)));
-chrome.tabs.onRemoved.addListener((id) => void ready.then((r) => r.onRemoved(id)));
+chrome.tabs.onRemoved.addListener((id, info) => void ready.then((r) => r.onRemoved(id, info)));
 chrome.tabs.onReplaced.addListener((added, removed) => void ready.then((r) => r.onReplaced(added, removed)));
 chrome.webNavigation.onBeforeNavigate.addListener((d) => d.frameId === 0 && void ready.then((r) => r.onNavigationStart(d.tabId, true)));
 chrome.webNavigation.onErrorOccurred.addListener((d) => d.frameId === 0 && void ready.then((r) => r.onNavigationStart(d.tabId, false)));
