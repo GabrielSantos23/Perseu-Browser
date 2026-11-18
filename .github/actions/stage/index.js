@@ -45,7 +45,9 @@ async function run() {
     });
     if (retCode === 0) {
         core.setOutput('finished', true);
-        const globber = await glob.create('C:\\ungoogled-chromium-windows\\build\\ungoogled-chromium*',
+        // package.py names the outputs perseu_<version>-<rev>.<pkg>_*; match that, not the
+        // upstream ungoogled-chromium_* naming the glob used to expect.
+        const globber = await glob.create('C:\\ungoogled-chromium-windows\\build\\perseu_*',
             {matchDirectories: false});
         let packageList = await globber.glob();
         const finalArtifactName = x86 ? 'chromium-x86' : (arm ? 'chromium-arm' : 'chromium');
