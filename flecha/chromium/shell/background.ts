@@ -32,6 +32,8 @@ import { followedPreferences, incognito, incognitoState, sessionKey } from './in
 import { displayKeys, keysFor } from './lib/shortcuts';
 
 const STATE_KEY = 'state';
+/** A worker that has just started may still be watching Chromium restore its own start page. */
+const startedAt = Date.now();
 /** Flecha tab id ↔ Chromium tab id, for the tabs that are open. Kept across background restarts. */
 const LIVE_KEY = 'live';
 const ARCHIVE_ALARM = 'archive-stale';
@@ -81,6 +83,20 @@ async function start() {
   const restored = (await chrome.storage.session.get(sessionKey(LIVE_KEY)))[sessionKey(LIVE_KEY)] as Record<string, number> | undefined;
   const existing = new Set((await chrome.tabs.query({})).map((t) => t.id));
   for (const [id, chromeId] of Object.entries(restored ?? {})) if (existing.has(chromeId) && store.state.tabs[id]) live.set(id, chromeId);
+  // A start page that Chromium opened for the new window can reuse an id from the previous
+  // session's live map. That map then says the selected website is already open, so the page is
+  // left on the home screen. Forget those stale entries and let the loop below map the page to
+  // the selected tab and navigate it.
+  let staleLive = false;
+  for (const [id, chromeId] of [...live]) {
+    const tab = await chrome.tabs.get(chromeId).catch(() => undefined);
+    const saved = store.state.tabs[id];
+    if (!tab || (isStartPage(tab) && saved?.url && !isStartPage({ url: saved.url } as chrome.tabs.Tab))) {
+      live.delete(id);
+      staleLive = true;
+    }
+  }
+  if (staleLive) void chrome.storage.session.set({ [sessionKey(LIVE_KEY)]: Object.fromEntries(live) });
   if (!restored) store.archiveStale();
   // None of an earlier incognito session's tabs are left: this is a new one, which starts empty.
   if (incognito && !live.size && (Object.keys(store.state.tabs).length || store.state.archive.length)) {
@@ -125,6 +141,31 @@ async function start() {
       live.set(id, tab.id!);
     }
   }
+
+  // The tab selected when the browser closed is the one the window shows. Chromium's start page
+  // usually takes its place above; if a stale live map or a second window left that mapping
+  // undone, make it active (and open it if Chromium did not) rather than leaving the home page.
+  const restoreSelectedTab = () => {
+    const active = store.activeTab;
+    if (!active) return;
+    const chromeId = live.get(active.id);
+    if (chromeId === undefined) {
+      // The selected tab has no Chromium tab of its own (a stale live map, or a window that
+      // restored only its start page). Open it now instead of leaving the home screen up.
+      void openChromeTab(active.id, true);
+      return;
+    }
+    // Chromium may finish restoring its own start page after this worker has started; the
+    // update below then loses to that later load. Re-assert the selected tab once the window
+    // has settled, not only on the first turn.
+    void chrome.tabs.update(chromeId, {
+      active: true,
+      ...(active.url && active.url !== 'about:blank' ? { url: active.url } : {}),
+    });
+  };
+  restoreSelectedTab();
+  setTimeout(restoreSelectedTab, 900);
+  setTimeout(restoreSelectedTab, 2200);
 
   /** A Flecha tab for an address; the new tab page and empty addresses make a blank "New Tab". */
   function addTab(address: string, opts: Parameters<Store['addTab']>[1]) {
@@ -548,6 +589,19 @@ async function start() {
   function onUpdated(chromeId: number, info: chrome.tabs.OnUpdatedInfo, tab: chrome.tabs.Tab) {
     const id = flechaIdFor(chromeId);
     if (!id) return;
+    // At startup Chromium's own start page can carry the id of the tab selected last time. It
+    // must not overwrite that tab with "Home": navigate it back to the address instead.
+    const savedUrl = store.state.tabs[id]?.url;
+    if (
+      Date.now() - startedAt < 6000 &&
+      info.url &&
+      isStartPage({ url: info.url } as chrome.tabs.Tab) &&
+      savedUrl &&
+      savedUrl !== 'about:blank'
+    ) {
+      void chrome.tabs.update(chromeId, { url: savedUrl, active: true });
+      return;
+    }
     const patch: Parameters<Store['updateTab']>[1] = {};
     // Chromium's new tab page is Flecha's empty state: the tab is still a blank one.
     if (info.url) patch.url = isStartPage({ url: info.url } as chrome.tabs.Tab) ? 'about:blank' : info.url;
@@ -572,6 +626,10 @@ async function start() {
     if (!id) return;
     refreshSiteColor(tabId);
     if (id && store.activeSpace.activeTabId !== id) store.activate(id);
+    // The selected tab has to survive a quit that comes before the debounced save; it is the
+    // one the window should restore. (The old `isWindowClosing` save runs after Chromium has
+    // already begun tearing the window down, which is too late for the service worker.)
+    if (id) store.saveNow();
   }
 
   function onRemoved(chromeId: number, info?: chrome.tabs.OnRemovedInfo) {

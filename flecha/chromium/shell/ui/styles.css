@@ -33,7 +33,11 @@ body {
   padding: 10px 8px 8px;
   /* Painted opaque on purpose: Chromium does not clear stale frames under transparent
      pixels of an overlaid view, which made old rows ghost behind new ones. */
-  background: var(--space-noise, none), var(--space-gradient, none) var(--space-color, #cdd9f7);
+  /* This is a background shorthand: the Zen gradient's layers carry their own position and size.
+     The colour comes after it so it stays the underlay, and the gradient is always a valid layer
+     (never a bare colour), including for a one-dot theme. */
+  background: var(--space-noise, none), var(--space-gradient, none);
+  background-color: var(--space-color, #cdd9f7);
 }
 
 /* A theme's grain sits over the colour and under everything the sidebar shows. */

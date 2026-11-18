@@ -13,17 +13,18 @@
   <body>
     <div id="home-sky" aria-hidden="true" hidden><img src="sky/night-1200.jpg" alt="" draggable="false" /></div>
     <header id="bar">
+      <div id="bar-drag" aria-hidden="true"></div>
       <div id="nav">
         <button id="back" class="icon-button" aria-label="Back" disabled><i data-icon="arrowLeft"></i></button>
         <button id="forward" class="icon-button" aria-label="Forward" disabled><i data-icon="arrowRight"></i></button>
         <button id="reload" class="icon-button" aria-label="Reload"><i data-icon="reload"></i></button>
       </div>
+      <button id="zoom" type="button" hidden></button>
       <div id="site-group" hidden>
         <button id="copy" class="icon-button" aria-label="Copy link"><i data-icon="link"></i></button>
         <button id="site" aria-label="Edit the address"><img alt="" draggable="false" /><span class="name"></span></button>
         <button id="site-controls" class="icon-button" aria-label="Site controls" aria-haspopup="dialog"><i data-icon="sliders"></i></button>
       </div>
-      <button id="zoom" type="button" hidden></button>
       <div id="extensions" role="group" aria-label="Pinned extensions" hidden></div>
       <button id="app-menu" class="icon-button" aria-label="Browser menu" aria-haspopup="menu"><i data-icon="moreVertical"></i></button>
       <div id="toast" role="status" aria-live="polite" hidden></div>

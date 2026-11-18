@@ -241,7 +241,9 @@ class GradientEngine {
   }
 
   #paintedStop(rgb: Rgb, alpha: number): string {
-    const [r, g, b] = rgb.map((v) => v.toFixed(2));
+    // Legacy comma rgba() takes integers; a fractional channel made Chromium reject the whole
+    // background-image declaration, leaving only the fallback background-color.
+    const [r, g, b] = rgb.map((v) => Math.round(v));
     return `rgba(${r}, ${g}, ${b}, ${alpha.toFixed(4)})`;
   }
 
@@ -325,13 +327,14 @@ class GradientEngine {
   getGradient(width: number, height: number, forToolbar = false): string {
     const themed = this.colors;
     if (themed.length === 0) {
-      if (forToolbar) return this.dark ? 'rgb(23, 23, 26)' : 'rgb(240, 240, 244)';
-      return this.dark ? '#131313' : '#e9e9e9';
+      const solid = this.dark ? '#131313' : '#e9e9e9';
+      // A sidebar background-image layer cannot be a bare colour: paint a flat gradient.
+      return forToolbar ? solid : `linear-gradient(${solid}, ${solid})`;
     }
     if (themed.length === 1) {
-      const rgb = parseColor(themed[0].c);
-      if (themed[0].isCustom) return themeColorCss(themed[0]);
-      return this.#colorStop(rgb);
+      const solid = themed[0].isCustom ? themeColorCss(themed[0]) : this.#colorStop(parseColor(themed[0].c));
+      // Same here: one colour is still a gradient layer, not a colour value.
+      return forToolbar ? solid : `linear-gradient(${solid}, ${solid})`;
     }
     if (themed.some((c) => c.isCustom)) {
       const stops = themed.map((color, index) => {
@@ -394,6 +397,9 @@ class GradientEngine {
     const base = this.mixBase(rgbs[0], rgbs[1], this.#baseMixAt(0.5, p), rgbs[2]);
     const [color, alpha] = this.#solveOverlayStop(base, rgbs[2], p);
     const painted = this.#paint(base);
+    // At the very top the overlay is fully transparent; solving its colour divides by zero,
+    // which used to make the first frame colour #NaNNaNNaN and the whole native frame fail.
+    if (alpha <= 0) return painted;
     return [0, 1, 2].map((i) => painted[i] * (1 - alpha) + color[i] * alpha) as Rgb;
   }
 }
