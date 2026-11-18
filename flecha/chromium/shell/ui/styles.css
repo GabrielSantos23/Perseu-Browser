@@ -105,15 +105,6 @@ body {
   height: 18px;
 }
 
-.traffic-lights {
-  width: 70px;
-}
-
-/* Windows keeps its own window buttons, top right; only macOS has traffic lights here. */
-:root:not([data-os='mac']) .traffic-lights {
-  display: none;
-}
-
 /* The address and Back/Forward/Reload live in the bar above the page unless Settings puts them here. */
 body[data-address='top'] .address-only {
   display: none !important;
@@ -564,10 +555,12 @@ body[data-address='top'] .address-only {
 }
 
 /* What a favorite is and what it can do; opens under its tile, inside the sidebar.
-   The card wears Perseu's own sheet (the website's tab card): near-black glass
-   with a lit hairline, and the actions as band-filled buttons in a row. */
+   The card wears Perseu's own sheet (the website's tab card): glass with a lit
+   hairline, and the actions as band-filled buttons in a row. */
 #fav-card,
 #tab-card {
+  --band: rgb(255 255 255 / 0.08);
+  --band-hover: rgb(255 255 255 / 0.16);
   position: absolute;
   z-index: 6;
   width: 216px;
@@ -630,10 +623,18 @@ body[data-address='top'] .address-only {
   height: 34px;
   border: 0;
   border-radius: 8px;
-  background: rgb(255 255 255 / 0.08);
+  background: var(--band);
   color: var(--perseu-text);
   font: 500 var(--text-xs) var(--font);
   transition: background-color 150ms var(--ease);
+}
+
+@media (prefers-color-scheme: light) {
+  #fav-card,
+  #tab-card {
+    --band: rgb(0 0 0 / 0.05);
+    --band-hover: rgb(0 0 0 / 0.09);
+  }
 }
 
 .tab-card-actions svg {
@@ -653,7 +654,7 @@ body[data-address='top'] .address-only {
 
 @media (hover: hover) and (pointer: fine) {
   .tab-card-actions button:hover:not(:disabled) {
-    background: rgb(255 255 255 / 0.16);
+    background: var(--band-hover);
   }
 }
 
@@ -1212,8 +1213,7 @@ body[data-address='top'] .address-only {
   height: 28px;
 }
 
-.local-server .live-dot,
-.local-chip .live-dot {
+.local-server .live-dot {
   flex: none;
   width: 7px;
   height: 7px;
@@ -1626,26 +1626,6 @@ footer {
   }
 }
 
-.pill-button {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  height: 28px;
-  padding: 0 10px;
-  border-radius: var(--radius-sm);
-  font-weight: 500;
-  transition: background var(--fast) var(--ease);
-}
-
-.pill-button:hover {
-  background: var(--surface-2);
-}
-
-.pill-button svg {
-  width: 14px;
-  height: 14px;
-}
-
 /* ---- command bar -------------------------------------------------------- */
 
 #palette {
@@ -1887,21 +1867,31 @@ footer {
 }
 
 /* The command bar in Perseu's own design (the website's search card): the
-   sheet's near-black glass with a lit hairline rim, and the blue selected row.
-   Sizes stay Flecha's. */
+   sheet's glass with a lit hairline rim, and the blue selected row.
+   Sizes stay Flecha's. The bands flip to ink in light mode. */
 #palette {
   background: rgb(6 10 18 / 0.45);
 }
 
+@media (prefers-color-scheme: light) {
+  #palette {
+    background: rgb(11 37 69 / 0.16);
+  }
+}
+
 .palette-box {
   --surface: var(--perseu-sheet);
-  --surface-2: rgb(255 255 255 / 0.08);
+  --surface-2: var(--perseu-band);
   --surface-line: rgb(255 255 255 / 0.07);
   --text: var(--perseu-text);
   --text-2: var(--perseu-muted);
   --text-3: var(--perseu-faint);
-  --fill-hover: rgb(255 255 255 / 0.08);
+  --fill-hover: var(--perseu-band);
   --line: rgb(255 255 255 / 0.07);
+  /* Bands that only this sheet's rules paint directly. */
+  --band-soft: rgb(255 255 255 / 0.09);
+  --band-detail: rgb(255 255 255 / 0.04);
+  --band-ring: rgb(255 255 255 / 0.12);
 
   border: 0;
   border-radius: var(--radius-xl);
@@ -1910,11 +1900,21 @@ footer {
   color: var(--perseu-text);
 }
 
+@media (prefers-color-scheme: light) {
+  .palette-box {
+    --surface-line: rgb(0 0 0 / 0.08);
+    --line: rgb(0 0 0 / 0.08);
+    --band-soft: rgb(0 0 0 / 0.06);
+    --band-detail: rgb(0 0 0 / 0.04);
+    --band-ring: rgb(0 0 0 / 0.14);
+  }
+}
+
 .palette-field {
   gap: 11px;
   color: var(--perseu-muted);
   border-bottom: 0;
-  box-shadow: inset 0 -1px 0 rgb(255 255 255 / 0.07);
+  box-shadow: inset 0 -1px 0 var(--surface-line);
 }
 
 #palette-input {
@@ -1927,7 +1927,7 @@ footer {
 }
 
 #palette-mode {
-  background: rgb(255 255 255 / 0.09);
+  background: var(--band-soft);
   color: var(--perseu-muted);
 }
 
@@ -1940,7 +1940,7 @@ footer {
 }
 
 #palette-results .item:hover {
-  background: rgb(255 255 255 / 0.08);
+  background: var(--perseu-band);
 }
 
 #palette-results .item.selected {
@@ -1949,10 +1949,11 @@ footer {
 }
 
 .item .item-icon {
-  background: rgb(255 255 255 / 0.08);
+  background: var(--perseu-band);
   color: var(--perseu-muted);
 }
 
+/* On the blue selected row the whites hold on both themes. */
 .item.selected .item-icon {
   background: rgb(255 255 255 / 0.22);
   color: #fff;
@@ -1973,23 +1974,23 @@ footer {
 
 #palette-detail {
   border-top: 0;
-  background: rgb(255 255 255 / 0.04);
+  background: var(--band-detail);
   color: var(--perseu-text);
-  box-shadow: inset 0 1px 0 rgb(255 255 255 / 0.07);
+  box-shadow: inset 0 1px 0 var(--surface-line);
 }
 
 .palette-footer {
   gap: 16px;
   color: var(--perseu-faint);
   border-top: 0;
-  box-shadow: inset 0 1px 0 rgb(255 255 255 / 0.07);
+  box-shadow: inset 0 1px 0 var(--surface-line);
 }
 
 .palette-footer kbd {
   padding: 1px 6px;
   border-radius: 5px;
-  background: rgb(255 255 255 / 0.09);
-  box-shadow: inset 0 0 0 1px rgb(255 255 255 / 0.12);
+  background: var(--band-soft);
+  box-shadow: inset 0 0 0 1px var(--band-ring);
   font: 500 10.5px var(--font);
   color: inherit;
 }
@@ -2018,109 +2019,6 @@ footer {
 .space-editor .sm-body {
   overflow-y: auto;
   scrollbar-width: thin;
-}
-
-[data-frame] .space-editor::before {
-  content: '';
-  position: absolute;
-  left: -6px;
-  top: 22px;
-  width: 12px;
-  height: 12px;
-  background: var(--surface);
-  transform: rotate(45deg);
-  box-shadow: -1px 1px 0 0 var(--menu-border);
-}
-
-#palette-input::placeholder {
-  color: var(--perseu-faint);
-}
-
-#palette-mode {
-  background: rgb(255 255 255 / 0.09);
-  color: var(--perseu-muted);
-}
-
-#palette-results .group-label {
-  color: var(--perseu-faint);
-}
-
-#palette-results .item {
-  transition: background-color 150ms var(--ease);
-}
-
-#palette-results .item:hover {
-  background: rgb(255 255 255 / 0.08);
-}
-
-#palette-results .item.selected {
-  background: var(--perseu-selection);
-  color: #fff;
-}
-
-.item .item-icon {
-  background: rgb(255 255 255 / 0.08);
-  color: var(--perseu-muted);
-}
-
-.item.selected .item-icon {
-  background: rgb(255 255 255 / 0.22);
-  color: #fff;
-}
-
-.item .sub {
-  color: var(--perseu-faint);
-}
-
-.item.selected .sub {
-  color: rgb(255 255 255 / 0.8);
-}
-
-.item.selected .enter {
-  background: rgb(255 255 255 / 0.22);
-  color: #fff;
-}
-
-#palette-detail {
-  border-top: 0;
-  background: rgb(255 255 255 / 0.04);
-  color: var(--perseu-text);
-  box-shadow: inset 0 1px 0 rgb(255 255 255 / 0.07);
-}
-
-.palette-footer {
-  gap: 16px;
-  color: var(--perseu-faint);
-  border-top: 0;
-  box-shadow: inset 0 1px 0 rgb(255 255 255 / 0.07);
-}
-
-.palette-footer kbd {
-  padding: 1px 6px;
-  border-radius: 5px;
-  background: rgb(255 255 255 / 0.09);
-  box-shadow: inset 0 0 0 1px rgb(255 255 255 / 0.12);
-  font: 500 10.5px var(--font);
-  color: inherit;
-}
-
-/* ---- Space editor ------------------------------------------------------- */
-
-.space-editor {
-  top: 128px;
-  bottom: auto;
-  max-height: none;
-  z-index: 2;
-}
-
-/* With the browser's frame the Space menu opens beside the sidebar, over the page,
-   pointing at the Space's name (the frame covers the window while it is open). */
-[data-frame] .space-editor {
-  position: fixed;
-  left: calc(var(--sidebar) + 2px);
-  right: auto;
-  width: 320px;
-  overflow: visible;
 }
 
 [data-frame] .space-editor::before {
@@ -2290,13 +2188,6 @@ footer {
 
 .sm-wide:hover {
   color: var(--text);
-}
-
-.editor-body {
-  display: flex;
-  flex-direction: column;
-  gap: var(--space-2);
-  padding: 4px 14px 12px;
 }
 
 .text-field {
@@ -2896,29 +2787,6 @@ footer {
   --zen-grain-rendering: auto;
 }
 
-.toggle-row {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: var(--space-3);
-  margin-top: 6px;
-  padding: 10px 12px;
-  border-radius: var(--radius-md);
-  background: var(--surface-2);
-}
-
-.toggle-row strong {
-  display: block;
-  font-weight: 500;
-}
-
-.toggle-row small {
-  display: block;
-  margin-top: 1px;
-  font-size: var(--text-xs);
-  color: var(--text-3);
-}
-
 .switch {
   appearance: none;
   -webkit-appearance: none;
@@ -2976,47 +2844,44 @@ footer {
   opacity: 0.4;
 }
 
-.primary-button {
-  height: 28px;
-  padding: 0 14px;
-  border-radius: var(--radius-sm);
-  background: var(--ink);
-  color: var(--paper);
-  font-weight: 600;
-  transition: filter var(--fast) var(--ease);
-}
-
-.primary-button:hover {
-  filter: brightness(1.2);
-}
-
-@media (prefers-color-scheme: dark) {
-  .primary-button {
-    background: var(--paper);
-    color: var(--ink);
-  }
-
-  .primary-button:hover {
-    filter: brightness(0.92);
-  }
-}
-
 /* The Space editor in Perseu's own design (the website's space editor): the
-   sheet's near-black glass, its labels faint, its controls band-filled. Sizes stay Flecha's. */
+   sheet's glass, its labels faint, its controls band-filled. Sizes stay Flecha's.
+   The bands flip to ink in light mode, where the theme picker follows the aliases. */
 .space-editor {
   --surface: var(--perseu-sheet);
-  --surface-2: rgb(255 255 255 / 0.08);
+  --surface-2: var(--perseu-band);
   --surface-line: rgb(255 255 255 / 0.07);
   --text: var(--perseu-text);
   --text-2: var(--perseu-muted);
   --text-3: var(--perseu-faint);
-  --fill-hover: rgb(255 255 255 / 0.08);
+  --fill-hover: var(--perseu-band);
+  /* Bands that only this sheet's rules paint directly. */
+  --band: rgb(255 255 255 / 0.08);
+  --band-hover: rgb(255 255 255 / 0.14);
+  --band-soft: rgb(255 255 255 / 0.1);
+  --band-more: rgb(255 255 255 / 0.16);
+  --band-strong: rgb(255 255 255 / 0.12);
+  --band-ring: rgb(255 255 255 / 0.18);
+  --band-faint: rgb(255 255 255 / 0.07);
 
   border: 0;
   border-radius: var(--radius-xl);
   background: var(--perseu-sheet);
   box-shadow: inset 0 0 0 1px var(--perseu-ring), var(--perseu-drop-deep);
   color: var(--perseu-text);
+}
+
+@media (prefers-color-scheme: light) {
+  .space-editor {
+    --surface-line: rgb(0 0 0 / 0.08);
+    --band: rgb(0 0 0 / 0.05);
+    --band-hover: rgb(0 0 0 / 0.09);
+    --band-soft: rgb(0 0 0 / 0.06);
+    --band-more: rgb(0 0 0 / 0.11);
+    --band-strong: rgb(0 0 0 / 0.08);
+    --band-ring: rgb(0 0 0 / 0.12);
+    --band-faint: rgb(0 0 0 / 0.08);
+  }
 }
 
 /* The arrow keeps its place but takes the sheet and the lit hairline. */
@@ -3027,22 +2892,22 @@ footer {
 
 .space-editor .sm-icon {
   border-radius: 10px;
-  background: rgb(255 255 255 / 0.08);
+  background: var(--band);
 }
 
 .space-editor .sm-icon:hover,
 .space-editor .sm-icon[aria-expanded='true'] {
-  background: rgb(255 255 255 / 0.14);
+  background: var(--band-hover);
 }
 
 .space-editor .text-field {
-  background: rgb(255 255 255 / 0.08);
-  box-shadow: inset 0 0 0 0.5px rgb(255 255 255 / 0.07);
+  background: var(--band);
+  box-shadow: inset 0 0 0 0.5px var(--band-faint);
   color: var(--perseu-text);
 }
 
 .space-editor .text-field:focus {
-  box-shadow: inset 0 0 0 0.5px rgb(255 255 255 / 0.07), 0 0 0 3px var(--focus);
+  box-shadow: inset 0 0 0 0.5px var(--band-faint), 0 0 0 3px var(--focus);
 }
 
 .space-editor .field-label,
@@ -3051,41 +2916,18 @@ footer {
 }
 
 .space-editor .sm-help {
-  background: rgb(255 255 255 / 0.1);
-  box-shadow: inset 0 0 0 0.5px rgb(255 255 255 / 0.18);
+  background: var(--band-soft);
+  box-shadow: inset 0 0 0 0.5px var(--band-ring);
   color: var(--perseu-muted);
 }
 
 .space-editor .emoji:hover {
-  background: rgb(255 255 255 / 0.08);
+  background: var(--band);
 }
 
 .space-editor .emoji.selected {
-  background: rgb(255 255 255 / 0.12);
-  box-shadow: inset 0 0 0 1px rgb(255 255 255 / 0.18);
-}
-
-.space-editor .swatch.selected {
-  box-shadow: inset 0 0 0 0.5px rgba(0, 0, 0, 0.12), 0 0 0 2px var(--perseu-sheet), 0 0 0 3.5px var(--perseu-text);
-}
-
-.space-editor .color-chip[aria-checked='true'] {
-  box-shadow: inset 0 0 0 0.5px rgba(0, 0, 0, 0.12), 0 0 0 2px var(--perseu-sheet), 0 0 0 3.5px var(--perseu-text);
-}
-
-.space-editor .color-chip .remove {
-  background: var(--perseu-text);
-  color: var(--perseu-sheet);
-}
-
-.space-editor .color-hex {
-  border: 0;
-  background: rgb(255 255 255 / 0.08);
-  color: var(--perseu-muted);
-}
-
-.space-editor .color-hex input {
-  color: var(--perseu-text);
+  background: var(--band-strong);
+  box-shadow: inset 0 0 0 1px var(--band-ring);
 }
 
 .space-editor .sm-extension {
@@ -3093,24 +2935,24 @@ footer {
 }
 
 .space-editor .sm-extension:hover:not(:disabled) {
-  background: rgb(255 255 255 / 0.08);
+  background: var(--band);
 }
 
 .space-editor .sm-extension.on {
-  background: rgb(255 255 255 / 0.12);
-  box-shadow: inset 0 0 0 1px rgb(255 255 255 / 0.18);
+  background: var(--band-strong);
+  box-shadow: inset 0 0 0 1px var(--band-ring);
 }
 
 .space-editor .sm-wide {
   border-radius: 9px;
-  background: rgb(255 255 255 / 0.1);
+  background: var(--band-soft);
   box-shadow: none;
   color: var(--perseu-text);
   font-weight: 550;
 }
 
 .space-editor .sm-wide:hover {
-  background: rgb(255 255 255 / 0.16);
+  background: var(--band-more);
   color: var(--perseu-text);
 }
 
@@ -3510,14 +3352,9 @@ body[data-sidebar='floating'] #sidebar.peek-leaving {
 }
 
 /* ---- fullscreen (the browser says so, patch 0039) -------------------------------------
-   No traffic lights in the sidebar's top row, so the toggle moves to the left; the floating
-   sidebar is a card on the screen's edge, full height, as in Arc. */
+   The floating sidebar is a card on the screen's edge, full height, as in Arc. */
 
 @media (display-mode: fullscreen) {
-  .traffic-lights {
-    display: none;
-  }
-
   body[data-sidebar='floating'] #sidebar {
     inset: 0 auto 0 0;
     border-radius: 0 var(--float-radius) var(--float-radius) 0;
@@ -4012,11 +3849,6 @@ body[data-sidebar='floating'] #sidebar.peek-leaving {
 .np-ctl .np-glyph {
   fill: currentColor;
   stroke: none;
-}
-
-/* Play/pause stands out from the keys around it. */
-.np-toggle {
-  color: #fff;
 }
 
 .np-close {

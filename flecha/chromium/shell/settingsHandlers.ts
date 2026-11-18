@@ -3,7 +3,7 @@
  * (lib/settingsCore.ts, lib/tabManager.ts), answering the Settings page over the hub.
  * Every name starts with `settings:` so it never clashes with the sidebar's.
  */
-import type { SettingsPatch, SettingsView, TabsEdit } from '../shared/types';
+import type { BrowserState, SettingsPatch, SettingsView, TabsEdit } from '../shared/types';
 import type { Store } from '../shared/store';
 import { applySettings, renewAgentToken, settingsView } from './lib/settingsCore';
 import { TabManager, type AskOptions, type TabsMenuRequest, type TabsMenuRun } from './lib/tabManager';
@@ -35,6 +35,14 @@ export interface NotYet {
 }
 
 const notYet = (what: string): NotYet => ({ notYet: `${what} isn't in the Chromium build yet.` });
+
+/** Saves the whole Store state as a JSON download, ready to import again later. */
+export function exportBackupFile(state: BrowserState): void {
+  const blob = new Blob([JSON.stringify(state, null, 2)], { type: 'application/json' });
+  const url = URL.createObjectURL(blob);
+  const date = new Date().toISOString().slice(0, 10);
+  void chrome.downloads.download({ url, filename: `perseu-backup-${date}.json`, saveAs: true }).then(() => URL.revokeObjectURL(url));
+}
 
 export function registerSettings(ctx: SettingsContext) {
   const { store } = ctx;
@@ -107,6 +115,10 @@ export function registerSettings(ctx: SettingsContext) {
       await ctx.makeDefaultBrowser();
       return view();
     },
+    'settings:export-backup': () => {
+      exportBackupFile(store.state);
+      return view();
+    },
     // 'settings:open-boosts' opens the Boosts page; features.ts handles it.
     // The sidebar plays the tour (ui/onboarding.ts) while the Store isn't onboarded.
     'settings:show-tour': async () => {
@@ -116,7 +128,7 @@ export function registerSettings(ctx: SettingsContext) {
       if (main?.id !== undefined) await chrome.windows.update(main.id, { focused: true });
     },
     // TODO(chromium): there's no extension API for the macOS emoji picker; ⌃⌘Space opens it.
-    'settings:emoji-panel': () => notYet('The emoji picker button (press ⌃⌘Space)'),
+    'settings:emoji-panel': () => notYet('The emoji picker button (press Win+.)'),
 
     'settings:tabs': () => tabs.view(),
     'settings:edit-tabs': (edit: TabsEdit) => tabs.edit(edit),

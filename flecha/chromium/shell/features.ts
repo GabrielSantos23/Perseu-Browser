@@ -15,6 +15,7 @@ import * as boosts from './features/boosts';
 import { consoleErrors, watchConsoleErrors } from './features/consoleErrors';
 import { watchLocalServers } from './features/localServers';
 import { responsive } from './features/responsive';
+import { watchBookmarks } from './features/bookmarksSync';
 
 export interface FeaturesContext {
   store: Store;
@@ -52,6 +53,9 @@ export function registerFeatures(ctx: FeaturesContext): Features {
 
   // ---- responsive view ----
   const phone = responsive(ctx);
+
+  // ---- the Spaces mirror in Chromium's bookmarks ----
+  watchBookmarks(store);
 
   // The old built-in ad blocker's stylesheet outlives the extension's updates; uBlock Origin replaced it.
   void chrome.scripting.unregisterContentScripts({ ids: ['flecha-adblock-cosmetic'] }).catch(() => undefined);
@@ -112,7 +116,7 @@ export function registerFeatures(ctx: FeaturesContext): Features {
         if (tab?.active) break;
         await new Promise((r) => setTimeout(r, 50));
       }
-      if (!run('openDevTools', { console: true })) broadcast('flash', 'Press ⌥⌘I for the console');
+      if (!run('openDevTools', { console: true })) broadcast('flash', 'Press F12 for the console');
     },
   });
 

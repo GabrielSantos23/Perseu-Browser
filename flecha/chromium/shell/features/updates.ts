@@ -8,8 +8,9 @@ import { readFeed } from '../lib/updateFeed';
 
 export const UPDATE_ALARM = 'check-update';
 const FEED = 'https://github.com/GabrielSantos23/Perseu-Browser/releases/latest/download/perseu-update.json';
-// The private half stays with whoever publishes (chromium/scripts/publish-windows-update.mjs).
-const PUBLIC_KEY = 'o98liIUZ72bHMyOvlGqkB2mN6tlvSFGnnaOncMzUv9Q=';
+// The private half stays with whoever publishes (chromium/scripts/publish-windows-update.mjs);
+// a copy of the signing key lives at C:/uc/perseu-update-signing-key.pem.
+const PUBLIC_KEY = 'hdWHFAKCT+GSzx7nVog/y1hE/8w8oXVdr7qfJHUEThU=';
 
 const setStatus = (state: string, version?: string) => chrome.storage.local.set({ updateStatus: { state, version } });
 

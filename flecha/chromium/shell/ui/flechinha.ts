@@ -131,7 +131,7 @@ document.addEventListener('keydown', (e) => {
     e.preventDefault();
     if (editing && state?.url) return input.blur();
     api.close();
-  } else if (e.metaKey && !e.shiftKey && !e.altKey && e.key.toLowerCase() === 'o') {
+  } else if ((e.ctrlKey || e.metaKey) && !e.shiftKey && !e.altKey && e.key.toLowerCase() === 'o') {
     e.preventDefault();
     if (state?.url) api.openInFlecha();
   }

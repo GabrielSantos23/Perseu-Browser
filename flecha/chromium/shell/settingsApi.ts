@@ -35,8 +35,8 @@ window.addEventListener(
       for (const fn of keyListeners) fn(key);
       return;
     }
-    // ⌘F: Electron's Find menu item sends this to Settings; here the page catches it itself.
-    if (e.code === 'KeyF' && e.metaKey && !e.ctrlKey && !e.altKey && !e.shiftKey) {
+    // Ctrl+F (⌘F on macOS): Electron's Find menu item sends this to Settings; here the page catches it itself.
+    if (e.code === 'KeyF' && (e.ctrlKey || e.metaKey) && !e.altKey && !e.shiftKey) {
       e.preventDefault();
       for (const fn of findListeners) fn();
     }
@@ -52,11 +52,6 @@ function setRecording(on: boolean) {
   cmd('settings:recording')(on);
 }
 
-// The background (Flecha's ⌘F, say) can ask for the search field too.
-on('settings:find', () => {
-  for (const fn of findListeners) fn();
-});
-
 // "Delete …?" questions from the tab manager, answered with the button's index.
 on('settings:ask', async (id: number, options: AskOptions) => {
   cmd('settings:answer')(id, await askDialog(options));
@@ -67,6 +62,7 @@ const api: SettingsApi = {
   set: (patch) => invoke<SettingsView>('settings:set', patch),
   chooseDownloadsFolder: () => invoke<SettingsView>('settings:choose-downloads-folder').then(tellNotYet),
   makeDefaultBrowser: () => invoke<SettingsView>('settings:make-default-browser').then(tellNotYet),
+  exportBackup: () => invoke<SettingsView>('settings:export-backup'),
   newAgentToken: () => invoke<SettingsView>('settings:new-agent-token'),
   // Extension pages may write the clipboard themselves (the clipboardWrite permission).
   copy: (text) => navigator.clipboard.writeText(String(text)),

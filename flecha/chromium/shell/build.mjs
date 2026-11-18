@@ -23,6 +23,9 @@ function copyStatic() {
   manifest.version = `0.1.${Math.floor(now / 864e5) - 19723}.${Math.floor((now % 864e5) / 6e4)}`;
   fs.writeFileSync(path.join(out, 'manifest.json'), JSON.stringify(manifest, null, 2));
   for (const f of fs.readdirSync(ui)) if (f.endsWith(".css") || f.endsWith(".png") || f.endsWith(".webp") || f.endsWith(".woff2")) fs.copyFileSync(path.join(ui, f), path.join(out, f));
+  // Copy ZEN-THEME-LICENSE.txt so it ships with the extension.
+  const zenLicense = path.join(ui, 'ZEN-THEME-LICENSE.txt');
+  if (fs.existsSync(zenLicense)) fs.copyFileSync(zenLicense, path.join(out, 'ZEN-THEME-LICENSE.txt'));
   // The home's night sky (website public/sky).
   fs.cpSync(path.join(ui, 'sky'), path.join(out, 'sky'), { recursive: true });
   fs.copyFileSync(

@@ -14,7 +14,7 @@ import type { BrowserState, DropTarget, SearchEngineId, UiState } from '../share
 import { broadcast, call, handle, listen, onConnect } from './hub';
 import type { MenuRun } from './protocol';
 import type { MenuEntry } from './settingsUi';
-import { openSettings, registerSettings } from './settingsHandlers';
+import { exportBackupFile, openSettings, registerSettings } from './settingsHandlers';
 import { registerNativeHost } from './nativeHost';
 import { SiteIcons } from './siteIcons';
 // Loaded on the first turn: its modules add webNavigation and message listeners as they load.
@@ -690,7 +690,7 @@ async function start() {
       { label: 'Rename…', run: { rename: tabId } },
       { label: 'Duplicate', run: does('newTab', tab.url) },
       // A Flechinha window of its own; the window code lives in another shell module.
-      { label: 'Open in Mini Window', run: does('openPeek', tab.url) },
+      { label: 'Open in Mini Window', run: does('openFlechinha', undefined, tabId) },
       SEPARATOR,
       // An incognito window has just its tabs: nothing to pin, no other Space.
       ...(incognito
@@ -788,11 +788,14 @@ async function start() {
     const run = (id: ShortcutId) => ({ run: does('run', id), keys: shown(id) });
     return [
       { label: 'New Tab', ...run('newTab') },
-      { label: 'New Window', run: browser('newWindow'), keys: 'Ctrl+N' },
+      // New Window stays off until the Store tracks state per window: activeSpaceId,
+      // the placeholder and tab routing are all single-window, so a second window's
+      // sidebar mirrors the first and the two fight over tab activation and splits.
       { label: 'New Incognito Window', ...run('newIncognito') },
       SEPARATOR,
       { label: 'Downloads', run: browser('downloads'), keys: 'Ctrl+J' },
-      { label: 'Bookmarks', run: browser('bookmarks') },
+      { label: 'History', run: browser('history'), keys: 'Ctrl+H' },
+      { label: 'Passwords', run: browser('passwords') },
       { label: 'Extensions', run: browser('extensions') },
       { label: 'Clear Browsing Data…', run: browser('clearData'), keys: 'Ctrl+Shift+Del' },
       SEPARATOR,
@@ -1022,12 +1025,20 @@ async function start() {
     searchSuggestions: async (query: string): Promise<string[]> => {
       if (incognito) return [];
       const q = encodeURIComponent(query);
-      const services = [
-        `https://suggestqueries.google.com/complete/search?client=firefox&ie=utf-8&oe=utf-8&hl=${encodeURIComponent(navigator.language)}&q=${q}`,
-        `https://duckduckgo.com/ac/?type=list&q=${q}`,
-        `https://www.bing.com/osjson.aspx?query=${q}`,
-      ];
-      for (const url of services) {
+      const lang = encodeURIComponent(navigator.language);
+      // Use the user's selected search engine for suggestions instead of always leaking to Google.
+      const engineSuggestions: Record<string, string> = {
+        google: `https://suggestqueries.google.com/complete/search?client=firefox&ie=utf-8&oe=utf-8&hl=${lang}&q=${q}`,
+        duckduckgo: `https://duckduckgo.com/ac/?type=list&q=${q}`,
+        bing: `https://www.bing.com/osjson.aspx?query=${q}`,
+        brave: `https://search.brave.com/api/suggest?q=${q}&rich=false`,
+        ecosia: `https://ac.ecosia.org/?q=${q}`,
+      };
+      const engine = store.state.searchEngine || 'google';
+      const primary = engineSuggestions[engine] ?? engineSuggestions.duckduckgo;
+      // Fall back to DuckDuckGo or Bing only when the primary fails.
+      const fallbacks = [engineSuggestions.duckduckgo, engineSuggestions.bing].filter((u) => u !== primary);
+      for (const url of [primary, ...fallbacks]) {
         try {
           const response = await fetch(url, { credentials: 'omit', signal: AbortSignal.timeout(1200) });
           const data = response.ok ? await response.json() : undefined;
@@ -1066,6 +1077,7 @@ async function start() {
       const tabs = Object.keys(state.tabs).length;
       broadcast('flash', `Imported ${state.spaces.length} Spaces and ${tabs} tabs`);
     }),
+    exportFlechaState: () => exportBackupFile(store.state),
   });
 
   registerSiteControls({ store, activeChromeId, mainWindow });

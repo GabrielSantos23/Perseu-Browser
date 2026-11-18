@@ -238,7 +238,7 @@ function textRow(text: string, error = false) {
 function renderBrowsers() {
   if (!browsers) return browserList.replaceChildren(textRow('Looking for your browsers…'));
   if (!browsers.length && hostError) return browserList.replaceChildren(textRow(hostError, true));
-  if (!browsers.length) return browserList.replaceChildren(textRow('No other browsers with bookmarks or history were found on this Mac.'));
+  if (!browsers.length) return browserList.replaceChildren(textRow('No other browsers with bookmarks or history were found on this computer.'));
   browserList.replaceChildren(
     ...browsers.map((b) => {
       const done = imported.get(b.id);
@@ -506,6 +506,21 @@ function render(view: SettingsView) {
     environments = view.environments;
     renderEnvironments();
   }
+  // Default Browser row
+  const downloadsFolderText = document.getElementById('downloadsFolderText');
+  if (downloadsFolderText) downloadsFolderText.textContent = view.downloadsFolder || 'the Downloads folder';
+  const defaultBrowserText = document.getElementById('defaultBrowserText');
+  const makeDefaultBtn = document.getElementById('makeDefault') as HTMLButtonElement | null;
+  if (defaultBrowserText && makeDefaultBtn) {
+    const { isDefault, canSet } = view.defaultBrowser;
+    defaultBrowserText.textContent = isDefault
+      ? 'Perseu is your default browser.'
+      : canSet
+        ? 'Perseu is not your default browser.'
+        : 'Perseu can’t become your default browser in this copy.';
+    makeDefaultBtn.textContent = isDefault ? 'Default' : 'Make Default';
+    makeDefaultBtn.disabled = isDefault || !canSet;
+  }
 }
 
 // macOS asks for confirmation in its own dialog, so check again when the window regains focus.
@@ -545,5 +560,10 @@ searchEngine.addEventListener('change', async () =>
   render(await api.set({ searchEngine: searchEngine.value as SettingsView['searchEngine'] })),
 );
 document.getElementById('openUblock')!.addEventListener('click', () => void chrome.tabs.create({ url: 'chrome-extension://hondaflceahejakmcphhbjmjlacadinj/dashboard.html' }));
+
+// ---- Default Browser & Export Backup ------------------------------------------------
+
+document.getElementById('makeDefault')?.addEventListener('click', async () => render(await api.makeDefaultBrowser()));
+document.getElementById('exportBackup')?.addEventListener('click', async () => render(await api.exportBackup()));
 
 api.get().then(render);

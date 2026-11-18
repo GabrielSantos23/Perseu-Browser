@@ -1,6 +1,6 @@
 /**
  * The installed extensions, for the site panel's Extensions section and the ones pinned to
- * the sidebar: chrome.management's list plus Flecha's own order, pins and collapsed state.
+ * the sidebar: chrome.management's list plus Flecha's own order and pins.
  * Pages open an extension with chrome.flechaPrivate.openExtensionAction (patch 0042).
  */
 import type { ExtensionsView, InstalledExtension } from '../shared/types';
@@ -15,12 +15,11 @@ const ICON_SIZE = 48;
 interface Saved {
   order: string[];
   pinned: string[];
-  collapsed: boolean;
 }
 
 async function loadSaved(): Promise<Saved> {
   const saved = (await chrome.storage.local.get(STORAGE_KEY))[STORAGE_KEY] as Partial<Saved> | undefined;
-  return { order: saved?.order ?? [], pinned: saved?.pinned ?? [], collapsed: saved?.collapsed ?? false };
+  return { order: saved?.order ?? [], pinned: saved?.pinned ?? [] };
 }
 
 /** chrome://extension-icon, which pages can show but the service worker can't fetch. */
@@ -49,7 +48,7 @@ async function view(): Promise<ExtensionsView> {
       pinned: saved.pinned.includes(info.id),
     }),
   );
-  return { items, collapsed: saved.collapsed };
+  return { items };
 }
 
 const send = () =>
@@ -96,6 +95,5 @@ export function registerExtensions(openTab: (url: string) => void) {
       ids.splice(at < 0 ? ids.length : at, 0, String(id));
       await save((saved) => (saved.order = ids));
     },
-    setExtensionsCollapsed: (collapsed: boolean) => save((saved) => (saved.collapsed = !!collapsed)),
   });
 }

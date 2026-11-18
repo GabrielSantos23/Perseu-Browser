@@ -394,7 +394,7 @@ export function setupTabsPane(icon: (name: IconName) => SVGSVGElement) {
     });
     return el(
       'div',
-      { class: 'tm-row tm-editor adding', style: `--depth: ${depth}` },
+      { class: 'tm-row tm-editor', style: `--depth: ${depth}` },
       el('span', { class: 'tm-disclosure-space' }),
       el('span', { class: 'tm-favicon placeholder' }, icon('globe')),
       url,
@@ -588,14 +588,14 @@ export function setupTabsPane(icon: (name: IconName) => SVGSVGElement) {
 
   document.addEventListener('keydown', (e) => {
     if (pane.hidden || editing || spaceEditor) return;
-    if (e.metaKey && e.key === 'f') {
+    if ((e.ctrlKey || e.metaKey) && e.key === 'f') {
       e.preventDefault();
       search.focus();
       search.select();
       return;
     }
     if ((e.target as HTMLElement).closest('input, textarea, select')) return;
-    if (e.metaKey && e.key === 'a') {
+    if ((e.ctrlKey || e.metaKey) && e.key === 'a') {
       e.preventDefault();
       selected = new Set(order.filter((k) => k.startsWith('t:')));
       updateSelection();

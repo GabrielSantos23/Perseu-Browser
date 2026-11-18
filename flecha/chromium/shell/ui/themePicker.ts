@@ -921,7 +921,6 @@ export class ThemePicker {
     this.textureHandler.style.top = `${width / 2 + top}px`;
     this.textureHandler.style.left = `${width / 2 + left}px`;
     this.textureHandler.style.transform = `rotate(${angle + 90}deg)`;
-    this.textureHandler.style.setProperty('--zen-grainy-background-opacity', String(strength));
     const dots = this.texture.querySelectorAll('.zen-theme-picker-texture-dot');
     let i = 4;
     for (const dot of dots) {
@@ -930,7 +929,6 @@ export class ThemePicker {
       if (i === 16) i = 0;
     }
     this.texture.setAttribute('aria-valuenow', String(Math.round(strength * 16)));
-    this.texture.classList.toggle('no-texture', this.currentTextureType === 'none');
   }
 
 

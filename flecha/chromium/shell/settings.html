@@ -59,11 +59,31 @@
             </div>
             <button id="showTour" class="button">Show Tour</button>
           </div>
+          <div class="row" id="defaultBrowserRow">
+            <div class="row-text">
+              <strong>Default browser</strong>
+              <small id="defaultBrowserText">Check if Perseu is your default browser.</small>
+            </div>
+            <button id="makeDefault" class="button">Make Default</button>
+          </div>
+          <div class="row">
+            <div class="row-text">
+              <strong>Downloads</strong>
+              <small>Saved to <span id="downloadsFolderText">…</span>. Picking a folder comes later.</small>
+            </div>
+          </div>
+          <div class="row">
+            <div class="row-text">
+              <strong>Export Perseu backup</strong>
+              <small>Save your Spaces, tabs and settings as a JSON file you can import later.</small>
+            </div>
+            <button id="exportBackup" class="button">Export</button>
+          </div>
         </div>
       </section>
 
       <section class="pane" data-pane="import">
-        <p class="lead">Bring bookmarks, history and cookies over from another browser on this Mac, so you stay signed in to your sites. Bookmarks become pinned tabs in a Space of their own; passwords stay put.</p>
+        <p class="lead">Bring bookmarks, history and cookies over from another browser on this computer, so you stay signed in to your sites. Bookmarks become pinned tabs in a Space of their own; passwords stay put.</p>
         <div id="browserList" class="card"></div>
         <div class="card">
           <div class="row">
@@ -124,7 +144,7 @@
           <label class="row">
             <div class="row-text">
               <strong>Open links from other apps in a Mini Window</strong>
-              <small>Links from Slack, Mail or the terminal open in a small window of their own, so they don't clutter your Spaces. Keep one with Open in Perseu.</small>
+              <small>Links from Slack, email or the terminal open in a small window of their own, so they don't clutter your Spaces. Keep one with Open in Perseu.</small>
             </div>
             <input type="checkbox" id="openLinksInFlechinha" class="switch" />
           </label>
@@ -160,8 +180,8 @@
         </div>
         <div id="tm-tree" class="tm-tree"></div>
         <p class="footnote">
-          Drag tabs and folders to reorder them or move them between Spaces. <kbd>⌘</kbd>-click or <kbd>⇧</kbd>-click
-          selects several; <kbd>↩</kbd> edits, <kbd>⌫</kbd> deletes. Deleted tabs stay findable in the Archive.
+          Drag tabs and folders to reorder them or move them between Spaces. <kbd>Ctrl</kbd>-click or <kbd>Shift</kbd>-click
+          selects several; <kbd>Enter</kbd> edits, <kbd>Delete</kbd> deletes. Deleted tabs stay findable in the Archive.
         </p>
       </section>
 
@@ -183,7 +203,7 @@
 
       <section class="pane" data-pane="environments">
         <p class="lead">
-          Group the places a project runs. <kbd>⌥⌘E</kbd> moves the page to the next one with the same path, and the
+          Group the places a project runs. <kbd>Ctrl+Alt+E</kbd> moves the page to the next one with the same path, and the
           address bar shows a <span class="tone local">LOCAL</span> <span class="tone staging">STAGING</span>
           <span class="tone production">PROD</span> badge so production never looks like a safe place to click around.
         </p>
@@ -206,7 +226,7 @@
             <button id="openBoosts" class="button">Open Boosts</button>
           </div>
         </div>
-        <p class="footnote">Tip: press <kbd>⌥⌘B</kbd> on any site to create or edit its boost.</p>
+        <p class="footnote">Tip: press <kbd>Ctrl+Alt+B</kbd> on any site to create or edit its boost.</p>
       </section>
 
       <section class="pane" data-pane="agents">
@@ -218,7 +238,7 @@
           <label class="row">
             <div class="row-text">
               <strong>Let coding agents use Perseu</strong>
-              <small>Full access. Only programs on this Mac that have the token can connect.</small>
+              <small>Full access. Only programs on this computer that have the token can connect.</small>
             </div>
             <input type="checkbox" id="agentEnabled" class="switch" />
           </label>
@@ -249,7 +269,7 @@
       </section>
       <section class="pane" data-pane="shortcuts">
         <div class="shortcuts-head">
-          <p class="lead">Click a shortcut and press the keys you want. <kbd>⌫</kbd> removes it, <kbd>Esc</kbd> cancels.</p>
+          <p class="lead">Click a shortcut and press the keys you want. <kbd>Delete</kbd> removes it, <kbd>Esc</kbd> cancels.</p>
           <button id="resetShortcuts" class="button">Restore Defaults</button>
         </div>
         <div id="shortcut-notice" class="notice" hidden></div>

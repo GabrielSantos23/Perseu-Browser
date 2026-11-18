@@ -331,7 +331,6 @@ const api: FlechaApi = {
   extensionMenu: (id) => showMenu('extensionMenu', id),
   reloadMenu: (at) => void showMenu('reloadMenu', '', at),
   moveExtension: cmd('moveExtension'),
-  setExtensionsCollapsed: cmd('setExtensionsCollapsed'),
 };
 
 window.flecha = api;

@@ -103,10 +103,6 @@ body {
   background: linear-gradient(#4aa8e8, #1f78c8);
 }
 
-.nav-icon.green {
-  background: linear-gradient(#42c27a, #1f9d5b);
-}
-
 .nav-icon.cyan {
   background: linear-gradient(#4cc6d8, #1e9db3);
 }

@@ -308,6 +308,22 @@ def main():
         libclang_bindings_dir = Path(list(clang_spec.submodule_search_locations)[0]).parent
         windows_flags += f'\nv8_metagen_libclang_so="{libclang_so.resolve().as_posix()}"\n'
         windows_flags += f'v8_metagen_libclang_bindings_dir="{libclang_bindings_dir.resolve().as_posix()}"\n'
+        # Widevine CDM: DRM streaming (Spotify, Netflix...). Free from Google's Widevine
+        # portal (register once, agree to the CDM terms); dropped into
+        # flecha/chromium/widevine/win/<arch>/widevinecdm.dll (+ manifest.json, LICENSE),
+        # they get bundled into the installer. Without them the build stays DRM-free.
+        widevine_arch = 'x86' if args.x86 else 'arm64' if args.arm else 'x64'
+        widevine_src = _ROOT_DIR / 'flecha' / 'chromium' / 'widevine' / 'win' / widevine_arch
+        if (widevine_src / 'widevinecdm.dll').is_file():
+            widevine_target = source_tree / 'third_party' / 'widevine' / 'cdm' / 'win' / widevine_arch
+            shutil.copytree(widevine_src, widevine_target, dirs_exist_ok=True)
+            # Official builds fail on a missing Widevine signing cert unless suppressed;
+            # the .sig shipped by the portal already covers the CDM itself.
+            windows_flags += '\nenable_widevine=true\nbundle_widevine_cdm=true\n'
+            windows_flags += 'ignore_missing_widevine_signing_cert=true\n'
+            get_logger().info('Bundling Widevine CDM from %s', widevine_src)
+        else:
+            get_logger().info('No Widevine CDM in flecha/chromium/widevine/win/%s — DRM streaming stays off', widevine_arch)
         gn_flags += windows_flags
         (source_tree / 'out/Default/args.gn').write_text(gn_flags, encoding=ENCODING)
 
@@ -355,6 +371,51 @@ def main():
 
     # Perseu: the shell and the bundled extensions the installer packs.
     subprocess.run([sys.executable, str(_ROOT_DIR / 'flecha' / 'ci' / 'stage_shell.py'), 'out/Default'], check=True)
+
+    # Perseu: copy branding assets so clean builds use Perseu icons instead of stock Chromium.    _branding_src = _ROOT_DIR / 'flecha' / 'chromium' / 'branding'
+    _theme_dst = source_tree / 'chrome' / 'app' / 'theme' / 'chromium'
+    # Windows .ico
+    _win_ico_src = _branding_src / 'win' / 'chromium.ico'
+    if _win_ico_src.exists():
+        (_theme_dst / 'win').mkdir(parents=True, exist_ok=True)
+        shutil.copy2(_win_ico_src, _theme_dst / 'win' / 'chromium.ico')
+    # Logo PNGs (product_logo_*.png)
+    _logo_src = _branding_src / 'logo'
+    if _logo_src.is_dir():
+        for png in _logo_src.glob('*.png'):
+            shutil.copy2(png, _theme_dst / png.name)
+    # Scaled logos (100% and 200%)
+    for scale in ('100', '200'):
+        _scaled_src = _branding_src / 'logo-scaled' / scale
+        _scaled_dst = source_tree / 'chrome' / 'app' / 'theme' / f'default_{scale}_percent' / 'chromium'
+        if _scaled_src.is_dir():
+            _scaled_dst.mkdir(parents=True, exist_ok=True)
+            for png in _scaled_src.glob('*.png'):
+                shutil.copy2(png, _scaled_dst / png.name)
+
+    # Perseu: the shell and the bundled extensions ride in the portable zip too. chrome.release
+    # covers the mini_installer, but package.py packs from FILES.cfg, which upstream doesn't list
+    # them in — without this the extracted zip is a blank, chromeless window.
+    _files_cfg = source_tree / 'chrome' / 'tools' / 'build' / 'win' / 'FILES.cfg'
+    if _files_cfg.exists() and 'flecha-shell' not in _files_cfg.read_text(encoding=ENCODING):
+        _files_cfg_text = _files_cfg.read_text(encoding=ENCODING)
+        _files_cfg_entries = """
+  # Perseu shell + bundled extensions (directories; filescfg walks them into the zip):
+  {
+    'filename': 'resources/flecha-shell',
+    'buildtype': ['official'],
+  },
+  {
+    'filename': 'resources/flecha-extensions',
+    'buildtype': ['official'],
+  },
+"""
+        # FILES.cfg is a Python list: the entries go inside it, before the closing bracket.
+        _close = _files_cfg_text.rfind('\n]')
+        if _close > 0:
+            _files_cfg.write_text(
+                _files_cfg_text[:_close] + '\n' + _files_cfg_entries + _files_cfg_text[_close:],
+                encoding=ENCODING)
 
     # Ninja commandline
     # V8's metagen runs `gn desc` and looks for gn under buildtools or on PATH; this build

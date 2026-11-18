@@ -102,6 +102,9 @@
   --perseu-drop-deep: 0 30px 80px -20px rgb(0 0 0 / 0.7);
   --ease-strong: cubic-bezier(0.16, 1, 0.3, 1);
 
+  /* In light mode the same components trade the near-black wash for Windows 11's
+     light acrylic: a paper sheet, ink text, a hairline rim, ink bands. The
+     drafting-blue selection and the night-sky home keep their own colours. */
   --menu-bg: #f9f9f9;
   --menu-border: rgba(0, 0, 0, 0.1);
   --menu-text: #1a1a1a;
@@ -110,6 +113,24 @@
   --menu-line: rgba(0, 0, 0, 0.08);
   --menu-shadow: 0 8px 16px rgba(0, 0, 0, 0.14);
   --menu-font: 'Segoe UI Variable Text', 'Segoe UI', system-ui, sans-serif;
+}
+
+/* Light mode for the perseu components: the same layout, Windows 11's light
+   acrylic instead of the near-black wash. */
+@media (prefers-color-scheme: light) {
+  :root {
+    --perseu-text: #1a1a1a;
+    --perseu-muted: rgba(26, 26, 26, 0.66);
+    --perseu-faint: rgba(26, 26, 26, 0.45);
+    --perseu-sheet: rgb(249 249 249 / 0.98);
+    --perseu-sheet-menu: #f9f9f9;
+    --perseu-ring: rgb(0 0 0 / 0.09);
+    --perseu-band: rgb(0 0 0 / 0.05);
+    --perseu-band-hover: rgb(0 0 0 / 0.09);
+    --perseu-danger: #c42b1c;
+    --perseu-drop: 0 12px 36px -12px rgb(0 0 0 / 0.28);
+    --perseu-drop-deep: 0 20px 50px -16px rgb(0 0 0 / 0.32);
+  }
 }
 
 @media (prefers-color-scheme: dark) {

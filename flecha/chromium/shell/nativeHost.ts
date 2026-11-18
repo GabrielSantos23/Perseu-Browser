@@ -246,10 +246,17 @@ export function registerNativeHost(ctx: NativeHostContext) {
     /** A bookmarks file exported from any browser as HTML, by its text, into a Space of its own. */
     importBookmarksFile: async (html: string, fileName?: string): Promise<ImportResult> => {
       try {
-        return await applyBrowserImport(await call('readBookmarksHtml', String(html), fileName), store, history, cookies);
+        // Parse HTML bookmarks directly in the extension — no native host needed on Windows.
+        const { parseBookmarksHtml } = await import('../native-host/bookmarksHtml');
+        const { newTidy } = await import('../shared/importParse');
+        const raw = parseBookmarksHtml(String(html));
+        const tidy = newTidy();
+        const bookmarks = tidy.run(raw);
+        const name = fileName?.replace(/\.html?$/i, '') || 'Bookmarks';
+        return await applyBrowserImport({ name, bookmarks, bookmarkCount: tidy.count, history: [], cookies: [], warnings: [] }, store, history, cookies);
       } catch (err) {
         const message = String(err instanceof Error ? err.message : err);
-        return { spaces: 0, bookmarks: 0, history: 0, cookies: 0, warnings: [isMissing(message) ? NOT_INSTALLED : message] };
+        return { spaces: 0, bookmarks: 0, history: 0, cookies: 0, warnings: [message] };
       }
     },
     /** The Electron spike's saved state as text, or undefined when there's none or no helper. */

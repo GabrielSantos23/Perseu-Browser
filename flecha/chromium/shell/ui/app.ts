@@ -411,7 +411,17 @@ async function folderMenu(folderId: string, name: HTMLElement, current: string, 
 function renderNode(node: PinnedNode, space: Space, folderId: string | undefined): HTMLElement {
   if (node.kind === 'tab') {
     const tab = state!.tabs[node.tabId];
-    return tab ? withChildren(tabRow(tab, space, { zone: 'pinned', folderId, beforeTabId: tab.id }), tab, space) : h('span');
+    if (!tab) return h('span');
+    // A pair of two top-level pinned halves draws here, at the first of them; any other
+    // half of a split is drawn with its partner in the Today list, so this zone skips it.
+    const pair = splitTabs(state!, space);
+    if (pair?.some((half) => half.id === node.tabId)) {
+      if (pair.every((half) => pinnedHas(space.pinned, half.id))) {
+        if (pair[0].id === node.tabId) return splitRow(state!, space, pair, 'pinned');
+      }
+      return h('span', { hidden: true });
+    }
+    return withChildren(tabRow(tab, space, { zone: 'pinned', folderId, beforeTabId: tab.id }), tab, space);
   }
   // A name that starts with an emoji shows it in place of the folder icon, as in Arc.
   const emoji = /^\p{Extended_Pictographic}[\u{FE0F}\u{200D}\p{Extended_Pictographic}]*\s*/u.exec(node.name)?.[0];
@@ -481,31 +491,43 @@ function pinnedHas(nodes: PinnedNode[], tabId: string): boolean {
 }
 
 function todayRows(s: UiState, space: Space): HTMLElement[] {
-  const pair = space.split && space.split.every((id) => space.today.includes(id) && s.tabs[id]) ? space.split : undefined;
-  const rows: HTMLElement[] = [];
+  const pair = splitTabs(s, space);
+  // The pair draws in the Today list when either half lives there; a pair of two
+  // top-level pinned tabs draws in the pinned list instead (renderNode).
+  const drawsHere = !!pair && !pair.every((half) => pinnedHas(space.pinned, half.id));
   let pairDrawn = false;
+  const rows: HTMLElement[] = [];
   for (const id of space.today) {
     const tab = s.tabs[id];
     if (!tab || isNested(tab, space)) continue;
     // The row sits where whichever half comes first in the list is; the other half is skipped.
-    if (pair && pair.includes(id)) {
+    if (drawsHere && pair!.some((half) => half.id === id)) {
       if (pairDrawn) continue;
       pairDrawn = true;
-      const [left, right] = pair.map((pid) => s.tabs[pid]);
-      const showing = !!space.activeTabId && pair.includes(space.activeTabId);
-      rows.push(
-        h(
-          'div',
-          { class: `split-row${showing ? ' showing' : ''}`, title: space.splitMode === 'responsive' ? 'Responsive view' : 'Split view' },
-          tabRow(left, space, { zone: 'today', beforeTabId: left.id }),
-          tabRow(right, space, { zone: 'today', beforeTabId: right.id }),
-        ),
-      );
+      rows.push(splitRow(s, space, pair!, 'today'));
       continue;
     }
     rows.push(withChildren(tabRow(tab, space, { zone: 'today', beforeTabId: tab.id }), tab, space));
   }
   return rows;
+}
+
+/** The Space's split pair, when both halves exist. */
+function splitTabs(s: UiState, space: Space): [TabInfo, TabInfo] | undefined {
+  if (!space.split) return undefined;
+  const [left, right] = space.split.map((id) => s.tabs[id]);
+  return left && right ? [left, right] : undefined;
+}
+
+/** The two halves of a split, drawn together as one row, as in Arc. */
+function splitRow(s: UiState, space: Space, [left, right]: [TabInfo, TabInfo], zone: 'today' | 'pinned'): HTMLElement {
+  const showing = !!space.activeTabId && space.split!.includes(space.activeTabId);
+  return h(
+    'div',
+    { class: `split-row${showing ? ' showing' : ''}`, title: space.splitMode === 'responsive' ? 'Responsive view' : 'Split view' },
+    tabRow(left, space, { zone, beforeTabId: left.id }),
+    tabRow(right, space, { zone, beforeTabId: right.id }),
+  );
 }
 
 /** Sound from a pinned tab or favorite, on its icon; a click mutes it. */
@@ -779,7 +801,7 @@ function renderSitePanel() {
 const EXTENSION_DRAG = 'application/x-flecha-extension';
 const WEB_STORE = 'https://chromewebstore.google.com/';
 const pageHasExtensions = 'frame' in document.documentElement.dataset && !('incognito' in document.documentElement.dataset);
-let extensions: ExtensionsView = { items: [], collapsed: false };
+let extensions: ExtensionsView = { items: [] };
 
 /** Opens beside the sidebar, level with the button, as a toolbar button's popup hangs under it. */
 function openExtension(button: HTMLElement, id: string, name: string) {
@@ -1220,8 +1242,8 @@ const ACTIONS: Array<{ label: string; keywords: string; icon: IconName; shortcut
   { label: 'Responsive View', keywords: 'mobile phone responsive device split', icon: 'phone', shortcut: 'responsive', run: () => api.toggleResponsive() },
   { label: 'Toggle Sidebar', keywords: 'sidebar hide show', icon: 'sidebar', shortcut: 'toggleSidebar', run: () => api.toggleSidebar() },
   { label: 'Clear Today Tabs', keywords: 'clear archive today close', icon: 'archive', shortcut: 'clearToday', run: () => api.clearToday() },
-  { label: 'Show Downloads', keywords: 'downloads files', icon: 'download', run: () => (downloadsPanel.hidden = false) },
-  { label: 'Show Archived Tabs', keywords: 'archive archived closed tabs old', icon: 'archive', run: () => ((archivePanel.hidden = false), renderArchive()) },
+  { label: 'Show Downloads', keywords: 'downloads files', icon: 'download', run: () => { closeSpaceEditor(); downloadsPanel.hidden = false; archivePanel.hidden = true; } },
+  { label: 'Show Archived Tabs', keywords: 'archive archived closed tabs old', icon: 'archive', run: () => { closeSpaceEditor(); archivePanel.hidden = false; downloadsPanel.hidden = true; renderArchive(); } },
   {
     label: 'Import from another browser',
     keywords: 'import migrate bookmarks history arc dia chrome safari firefox brave edge vivaldi opera',

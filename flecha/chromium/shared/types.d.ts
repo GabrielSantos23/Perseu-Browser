@@ -409,6 +409,8 @@ export interface SettingsApi {
   set(patch: SettingsPatch): Promise<SettingsView>;
   chooseDownloadsFolder(): Promise<SettingsView>;
   makeDefaultBrowser(): Promise<SettingsView>;
+  /** Saves the Spaces, tabs and settings as a JSON file the user can import again. */
+  exportBackup(): Promise<SettingsView>;
   newAgentToken(): Promise<SettingsView>;
   copy(text: string): Promise<void>;
   openBoosts(): Promise<void>;
@@ -480,7 +482,6 @@ export interface NowPlaying {
 /** In the user's order. */
 export interface ExtensionsView {
   items: InstalledExtension[];
-  collapsed: boolean;
 }
 
 export interface FlechaApi {
@@ -500,7 +501,6 @@ export interface FlechaApi {
   /** Resolves once the menu has closed (and its pick has run). */
   extensionMenu(id: string): Promise<void>;
   moveExtension(id: string, beforeId?: string): void;
-  setExtensionsCollapsed(collapsed: boolean): void;
   onState(cb: (state: UiState) => void): void;
   onPalette(cb: (mode: PaletteMode) => void): void;
   /** Main asks the sidebar to open the Space editor (new Space, menu, shortcut). */

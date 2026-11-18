@@ -6,8 +6,7 @@
   right: 0;
 }
 
-[data-surface='panel'] #edge,
-[data-surface='panel'] .traffic-lights {
+[data-surface='panel'] #edge {
   display: none;
 }
 
@@ -93,6 +92,9 @@
    sheet's near-black glass with a lit hairline rim, band-filled hover rows and
    the danger in its own red. Sizes stay Flecha's. */
 .shell-menu {
+  /* Bands over the sheet: the held-open row and the separators. They flip to ink in light mode. */
+  --hot: rgb(255 255 255 / 0.1);
+  --hairline: rgb(255 255 255 / 0.1);
   position: fixed;
   min-width: 180px;
   max-height: calc(100vh - 8px);
@@ -104,6 +106,13 @@
   box-shadow: inset 0 0 0 1px var(--perseu-ring), var(--perseu-drop);
   color: var(--perseu-text);
   font: 400 13px / 18px var(--font);
+}
+
+@media (prefers-color-scheme: light) {
+  .shell-menu {
+    --hot: rgb(0 0 0 / 0.06);
+    --hairline: rgb(0 0 0 / 0.08);
+  }
 }
 
 .shell-menu-item {
@@ -134,7 +143,7 @@
 /* The one the menu came here for, held lit, as the space menu holds Edit Space…. */
 .shell-menu-item.hot,
 .shell-menu-item.hot.active {
-  background: rgb(255 255 255 / 0.1);
+  background: var(--hot);
 }
 
 .shell-menu-item:has(.shell-menu-keys) {
@@ -143,7 +152,7 @@
 
 .shell-menu-item.active,
 .shell-menu-item.open {
-  background: rgb(255 255 255 / 0.08);
+  background: var(--perseu-band);
   outline: none;
 }
 
@@ -202,7 +211,7 @@
 .shell-menu-separator {
   height: 1px;
   margin: 4px 0;
-  background: rgb(255 255 255 / 0.1);
+  background: var(--hairline);
 }
 
 /* ---- questions --------------------------------------------------------------- */
@@ -261,7 +270,7 @@
   height: 28px;
   padding: 0 12px;
   border-radius: var(--radius-sm);
-  background: var(--card);
+  background: var(--surface);
   box-shadow: 0 0 0 0.5px var(--surface-line), 0 1px 1.5px rgba(11, 37, 69, 0.08);
   font-weight: 500;
 }
@@ -285,9 +294,7 @@
 [data-incognito] #pinned,
 [data-incognito] #spaces,
 [data-incognito] #btn-newspace,
-[data-incognito] #space-isolated,
-[data-incognito] #empty-top,
-[data-incognito] .empty-hints span:nth-child(2) {
+[data-incognito] #space-isolated {
   display: none !important;
 }
 
