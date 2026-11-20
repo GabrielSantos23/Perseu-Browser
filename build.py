@@ -219,6 +219,17 @@ def main():
         if ESBUILD.exists():
             shutil.rmtree(ESBUILD)
             ESBUILD.mkdir()
+        # Re-extracting strip-leading-dir archives collides with leftovers from a previous
+        # run (os.rename can't overwrite on Windows). Their targets are re-extracted from
+        # the download cache on every run anyway, so wiping their output dirs is safe.
+        # The chromium source entry also strips dirs but extracts into the tree root,
+        # which is git-managed — never touch it.
+        for _name, _props in download_info_win.properties_iter():
+            if _name == 'chromium' or not _props.strip_leading_dirs:
+                continue
+            _out = source_tree / _props.output_path
+            if _out.exists() and _out != source_tree:
+                shutil.rmtree(_out)
         get_logger().info('Unpacking downloads...')
         downloads.unpack_downloads(download_info_win, downloads_cache, None, source_tree, extractors)
 
@@ -235,6 +246,17 @@ def main():
             source_tree,
             patch_bin_path=(source_tree / _PATCH_BIN_RELPATH)
         )
+        # Then Flecha's own patch layer (shell component extension, frame view, split view, ...).
+        # Without this chrome.dll loses the whole Perseu layer whenever the tree is set up
+        # fresh. The monolithic export matches the current ungoogled+windows base; the quilt
+        # in flecha/chromium/patches has drifted from it (0009's hunks no longer line up).
+        _flecha_patch = _ROOT_DIR / 'flecha' / 'flecha-chromium-157.patch'
+        if _flecha_patch.exists():
+            patches.apply_patches(
+                [_flecha_patch.resolve()],
+                source_tree,
+                patch_bin_path=(source_tree / _PATCH_BIN_RELPATH)
+            )
 
         # Substitute domains
         domain_substitution_list = (_ROOT_DIR / 'ungoogled-chromium' / 'domain_substitution.list') if args.tarball else (_ROOT_DIR  / 'domain_substitution.list')
@@ -372,7 +394,8 @@ def main():
     # Perseu: the shell and the bundled extensions the installer packs.
     subprocess.run([sys.executable, str(_ROOT_DIR / 'flecha' / 'ci' / 'stage_shell.py'), 'out/Default'], check=True)
 
-    # Perseu: copy branding assets so clean builds use Perseu icons instead of stock Chromium.    _branding_src = _ROOT_DIR / 'flecha' / 'chromium' / 'branding'
+    # Perseu: copy branding assets so clean builds use Perseu icons instead of stock Chromium.
+    _branding_src = _ROOT_DIR / 'flecha' / 'chromium' / 'branding'
     _theme_dst = source_tree / 'chrome' / 'app' / 'theme' / 'chromium'
     # Windows .ico
     _win_ico_src = _branding_src / 'win' / 'chromium.ico'

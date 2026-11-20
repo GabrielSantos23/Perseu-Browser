@@ -8032,19 +8032,6 @@ index 29188e1cb88315d6d51036ac3ff85fa5112872fc..2248569d0906c3198247528f54bfd38d
    bool user_scripts_pref_allowed = false;
    ExtensionPrefs::Get(browser_context_)
        ->ReadPrefAsBoolean(extension_id, kUserScriptsAllowedPref,
-diff --git a/extensions/common/extension_urls.cc b/extensions/common/extension_urls.cc
-index c8abce4af9f219c8a283d710010d604e3e20de39..0458a65be0a5a8131024b0552974f7f927ea59bd 100644
---- a/extensions/common/extension_urls.cc
-+++ b/extensions/common/extension_urls.cc
-@@ -44,7 +44,7 @@ const char kModernWebGuidanceURL[] =
-     "https://developer.ch40me.qjz9zk/docs/extensions/ai/"
-     "build-with-ai#modern_web_guidance";
- const char kChromeWebstoreUpdateURL[] =
--    "https://clients2.9oo91e.qjz9zk/service/update2/crx";
-+    "https://clients2.google.com/service/update2/crx";
- const char kChromeWebstoreApiURL[] = "https://chromewebstore.9oo91eapis.qjz9zk/";
- 
- const char kAppMenuUtmSource[] = "ext_app_menu";
 diff --git a/extensions/common/mojom/api_permission_id.mojom b/extensions/common/mojom/api_permission_id.mojom
 index 6552fb883448e9daeae38b046fc4e6c8c4cfdd4e..8d3083e83f537900f9989828cfd76d222ae74526 100644
 --- a/extensions/common/mojom/api_permission_id.mojom
