@@ -19,8 +19,8 @@
  
  #if BUILDFLAG(IS_WIN)
    const base::Version version(params->update.version);
-+  const base::Version shell_version(params->update.shell_version);
-+  const base::Version running_shell_version(params->update.running_shell_version);
++  const base::Version shell_version(params->update.shell_version.value_or(""));
++  const base::Version running_shell_version(params->update.running_shell_version.value_or(""));
    url_ = GURL(params->update.url);
    sha256_ = base::ToLowerASCII(params->update.sha256);
    std::vector<uint8_t> hash;
