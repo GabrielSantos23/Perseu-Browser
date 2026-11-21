@@ -804,9 +804,18 @@
 }
 
 .tour-emojis button {
+  display: inline-grid;
+  place-items: center;
   width: 38px;
   padding: 0;
   font-size: 16px;
+}
+
+/* The Space icons are solid Lucide SVGs (spaceIcons.ts); keep them the size the emoji glyph was,
+   and centred like the text was. */
+.tour-emojis .space-icon {
+  width: 16px;
+  height: 16px;
 }
 
 .tour-swatches {
@@ -1273,6 +1282,12 @@
 
 .mk-space b {
   font-weight: 650;
+}
+
+/* The mock Space's icon: a solid Lucide svg standing in for the emoji glyph. */
+.mk-space-emoji .space-icon {
+  width: 12px;
+  height: 12px;
 }
 
 .mk-tab {

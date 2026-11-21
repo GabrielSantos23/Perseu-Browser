@@ -66,12 +66,15 @@ export interface Space {
   id: string;
   name: string;
   emoji?: string;
+  /** The bot's colour as #rrggbb; unset, it takes the sidebar's ink. */
+  botColor?: string;
   color: string;
   /** Two or three colours the window fades between, top to bottom; `color` is the first. */
   colors?: string[];
   /** The Space's Zen theme; `color`/`colors` are kept in step for the older surfaces. */
   theme?: SpaceTheme;
-  favorites: string[];
+  /** The Space's favorites: a tree like the pinned tabs, so the bookmarks bar can hold folders. */
+  favorites: PinnedNode[];
   pinned: PinnedNode[];
   today: string[];
   activeTabId?: string;
@@ -180,6 +183,10 @@ export interface BrowserState {
   addressInSidebar?: boolean;
   /** New Tab (Ctrl+T, the sidebar's button) opens the command bar; off opens a Home tab. Default on. */
   commandBar?: boolean;
+  /** The bar above the page retracts to an edge strip when the pointer isn't on it. Default off. */
+  retractTopBar?: boolean;
+  /** A row of bookmarks under the top bar, reading Chromium's bookmark bar. Default off. */
+  bookmarksBar?: boolean;
   /** Links arriving from other apps open in a Flechinha instead of a tab. Default on. */
   openLinksInFlechinha?: boolean;
   /** Today tabs untouched this long are archived; 0 keeps them forever. Default 12. */
@@ -268,7 +275,7 @@ export interface PeekState {
 }
 
 export type DropTarget =
-  | { zone: 'favorites'; beforeTabId?: string }
+  | { zone: 'favorites'; folderId?: string; beforeTabId?: string }
   | { zone: 'today'; beforeTabId?: string }
   | { zone: 'pinned'; folderId?: string; beforeTabId?: string };
 
@@ -336,6 +343,8 @@ export interface SettingsView {
   peekPinnedLinks: boolean;
   addressInSidebar: boolean;
   commandBar: boolean;
+  retractTopBar: boolean;
+  bookmarksBar: boolean;
   shortcuts: ShortcutInfo[];
   /** Set after recording a shortcut another command had, which lost it. */
   notice?: string;
@@ -535,7 +544,7 @@ export interface FlechaApi {
   stop(): void;
   switchSpace(spaceId: string): void;
   newSpace(): void;
-  updateSpace(spaceId: string, patch: { name?: string; emoji?: string; color?: string; colors?: string[]; theme?: SpaceTheme; pinnedExtensions?: string[] }): void;
+  updateSpace(spaceId: string, patch: { name?: string; emoji?: string; botColor?: string; color?: string; colors?: string[]; theme?: SpaceTheme; pinnedExtensions?: string[] }): void;
   /** Lets the frame page cover the whole window while a menu of its own is open (Chromium build only). */
   setOverlay?(name: string, on: boolean): void;
   /** The top bar asked for the site panel under its button (`rect` in window coordinates). */

@@ -11,7 +11,7 @@
  * needs chromium/scripts/install-native-host.sh.
  */
 import type { DetectedBrowser, HistoryEntry, ImportResult, UiState } from '../shared/types';
-import type { Store } from '../shared/store';
+import { pinnedTabIds, type Store } from '../shared/store';
 import type { AgentResult, AgentTab, AgentToolName } from '../shared/agentTools';
 import { applyBrowserImport, type ImportCookie } from '../shared/importApply';
 import { HOST_NAME, type HostMethods, type ToHost, type ToShell } from '../native-host/protocol';
@@ -307,7 +307,8 @@ export function registerNativeHost(ctx: NativeHostContext) {
       if (tab) tabs.push({ id, title: tab.customTitle || tab.title, url: tab.url, space, zone, active: visible.has(id) });
     };
     for (const space of store.state.spaces) {
-      for (const id of store.allTabIds(space)) add(id, space.name, space.favorites.includes(id) ? 'favorites' : space.today.includes(id) ? 'today' : 'pinned');
+      const favoriteIds = new Set(pinnedTabIds(space.favorites));
+      for (const id of store.allTabIds(space)) add(id, space.name, favoriteIds.has(id) ? 'favorites' : space.today.includes(id) ? 'today' : 'pinned');
     }
     return tabs;
   }

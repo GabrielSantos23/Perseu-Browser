@@ -364,3 +364,32 @@
 [data-incognito] #space-header {
   pointer-events: none;
 }
+
+/* Renaming (or naming) a bookmarks-bar folder from the frame page (windowUi.ts): the field takes
+   the bar's own place and colours — which the JS sets inline from the site's — because the menu
+   that asked, and the keyboard focus, live here, not on the bar's page. */
+.bar-rename {
+  position: fixed;
+  z-index: 40;
+  display: flex;
+  align-items: center;
+  padding: 0 146px 0 12px;
+  border-radius: var(--page-radius) var(--page-radius) 0 0;
+  box-shadow:
+    0 4px 18px rgb(0 0 0 / 0.3),
+    inset 0 0 0 1px var(--tile-line, rgb(255 255 255 / 0.12));
+}
+
+.bar-rename input {
+  flex: 1;
+  min-width: 0;
+  border: 0;
+  outline: none;
+  background: none;
+  color: inherit;
+  font: 500 13px / 1.4 var(--font);
+}
+
+.bar-rename input:focus-visible {
+  outline: none;
+}

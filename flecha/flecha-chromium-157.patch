@@ -3488,10 +3488,12 @@ index 0000000000000000000000000000000000000000..df14ec9bb3cd229232506275b082b897
 +    gfx::Rect page(window_size);
 +    page.Inset(PageInsets());
 +    // With the bar retracted they float over the page's corner, so the window
-+    // can always be closed.
++    // can always be closed. A bar taller than them (the bookmarks row under
++    // it) keeps them at the top row's height, over the bar's right end.
 +    return gfx::Rect(page.right() - width, kFlechaGap, width,
-+                     top_bar < 0 && !fullscreen ? kFlechaWindowButtonsHeight
-+                                                : TopBarRoom());
++                     top_bar < 0 && !fullscreen
++                         ? kFlechaWindowButtonsHeight
++                         : std::min(TopBarRoom(), kFlechaWindowButtonsHeight));
 +  }
 +
 +  bool TrafficLightsVisible() const {

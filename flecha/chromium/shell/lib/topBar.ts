@@ -1,7 +1,13 @@
 /** The bar on top of the page area (window.html?kind=topbar): its height, and its colours. */
 export const TOP_BAR_HEIGHT = 34;
+/** The bookmarks row under the bar (topbar.ts), shown by the bookmarksBar preference.
+    Must match #bookmarks-bar's own height in topbar.css. */
+export const BOOKMARKS_BAR_HEIGHT = 28;
 /** The retracted bar's hover strip; the browser puts no window buttons in a bar thinner than them. */
 export const TOP_EDGE_HEIGHT = 6;
+/** The whole bar's height: the top row, plus the bookmarks row when it is on. The frame takes
+    whatever height the shell reports (flecha_frame_view.cc, TopBarRoom), so this is all there is. */
+export const fullBarHeight = (bookmarksBar?: boolean) => TOP_BAR_HEIGHT + (bookmarksBar ? BOOKMARKS_BAR_HEIGHT : 0);
 
 /** The page's colour, or the home's sky (#1a1d25, the new tab's base) before the page says one. */
 export function topBarColors(siteColor: string | undefined) {

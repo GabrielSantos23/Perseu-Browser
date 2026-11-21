@@ -6,7 +6,7 @@ import type { FlechaApi, PaletteMode, UiState } from '../shared/types';
 import { spaceTint } from './lib/spaceTint';
 import { themeFrameColors, themeGradient, themeInk, themeTint } from './lib/zenTheme';
 import { resolveInput } from './lib/url';
-import { TOP_BAR_HEIGHT, TOP_EDGE_HEIGHT, topBarColors } from './lib/topBar';
+import { TOP_BAR_HEIGHT, TOP_EDGE_HEIGHT, fullBarHeight, topBarColors } from './lib/topBar';
 import { cmd, invoke, on } from './client';
 import { confirmDeleteSpace, copy, localMenu, setupWindowUi, showMenu } from './windowUi';
 import { incognito } from './incognito';
@@ -92,10 +92,12 @@ function applyFrame() {
     topBarPeek: false,
   };
   laidOut = true;
-  // With the address in the sidebar the bar stays away until the pointer asks for it: an edge
-  // strip along the page's top (TOP_EDGE_HEIGHT; the browser puts no window buttons in a bar
-  // thinner than them) is what the pointer reaches, and the bar then slides back in.
-  const target = lastState.addressInSidebar && !layout.topBarPeek ? TOP_EDGE_HEIGHT : TOP_BAR_HEIGHT;
+  // With the address in the sidebar, or with the retractTopBar setting, the bar stays away until
+  // the pointer asks for it: an edge strip along the page's top (TOP_EDGE_HEIGHT; the browser
+  // puts no window buttons in a bar thinner than them) is what the pointer reaches, and the bar
+  // then slides back in.
+  const full = fullBarHeight(lastState.bookmarksBar);
+  const target = (lastState.addressInSidebar || lastState.retractTopBar) && !layout.topBarPeek ? TOP_EDGE_HEIGHT : full;
   if (barShown === undefined || reduceMotion.matches) {
     barShown = target;
     barSlide = undefined;
@@ -130,6 +132,9 @@ function sendFrame() {
     topBarPeek: false,
   };
   const state = lastState;
+  const full = fullBarHeight(state.bookmarksBar);
+  // Same rule the bar itself applies (topbar.ts): whole from the top row's height up, so the
+  // bar paints mid-slide instead of popping in at the end.
   const thin = (barShown ?? TOP_BAR_HEIGHT) < TOP_BAR_HEIGHT;
   if (thin !== barWasThin) {
     barWasThin = thin;
@@ -153,7 +158,7 @@ function sendFrame() {
     // A local request is already on, even if the background's frame hasn't arrived yet.
     overlay: rest.overlay || localOverlays.size > 0,
     background,
-    topBar: barShown ?? TOP_BAR_HEIGHT,
+    topBar: barShown ?? full,
     topBarForeground,
     topBarBackground,
   };

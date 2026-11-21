@@ -333,6 +333,8 @@ const peekPinnedLinks = document.getElementById('peekPinnedLinks') as HTMLInputE
 const openLinksInFlechinha = document.getElementById('openLinksInFlechinha') as HTMLInputElement;
 const addressInSidebar = document.getElementById('addressInSidebar') as HTMLInputElement;
 const commandBar = document.getElementById('commandBar') as HTMLInputElement;
+const retractTopBar = document.getElementById('retractTopBar') as HTMLInputElement;
+const bookmarksBar = document.getElementById('bookmarksBar') as HTMLInputElement;
 
 for (const card of document.querySelectorAll<HTMLElement>('.theme-card')) {
   card.addEventListener('click', async () => render(await api.set({ theme: card.dataset.theme as SettingsView['theme'] })));
@@ -342,6 +344,8 @@ peekPinnedLinks.addEventListener('change', async () => render(await api.set({ pe
 openLinksInFlechinha.addEventListener('change', async () => render(await api.set({ openLinksInFlechinha: openLinksInFlechinha.checked })));
 addressInSidebar.addEventListener('change', async () => render(await api.set({ addressInSidebar: addressInSidebar.checked })));
 commandBar.addEventListener('change', async () => render(await api.set({ commandBar: commandBar.checked })));
+retractTopBar.addEventListener('change', async () => render(await api.set({ retractTopBar: retractTopBar.checked })));
+bookmarksBar.addEventListener('change', async () => render(await api.set({ bookmarksBar: bookmarksBar.checked })));
 
 // ---- keyboard shortcuts: click a key cap, press the new keys --------------------------
 
@@ -484,6 +488,8 @@ function render(view: SettingsView) {
   peekPinnedLinks.checked = view.peekPinnedLinks;
   addressInSidebar.checked = view.addressInSidebar;
   commandBar.checked = view.commandBar;
+  retractTopBar.checked = view.retractTopBar;
+  bookmarksBar.checked = view.bookmarksBar;
   if (!recordingId) {
     shortcuts = view.shortcuts;
     renderShortcuts();

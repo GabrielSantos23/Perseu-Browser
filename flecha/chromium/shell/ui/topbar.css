@@ -10,6 +10,14 @@ body {
   user-select: none;
 }
 
+/* Two rows when the bookmarks bar is on: the top bar, then its row (flechaApi.ts reports the
+   whole height; the browser sizes this page to it). */
+body {
+  display: flex;
+  flex-direction: column;
+  --window-buttons: 138px;
+}
+
 /* The home's titlebar is the sky: the strip draws the night sky itself, sized
    and placed so it continues the page's own sky at its top edge. The window
    buttons stay native, over its right end. */
@@ -34,9 +42,11 @@ body {
 }
 
 #bar {
-  --window-buttons: 138px;
   position: relative;
-  height: 100%;
+  /* 34 = TOP_BAR_HEIGHT (lib/topBar.ts); the bookmarks row takes the rest of the page. */
+  height: min(100%, 34px);
+  min-height: 0;
+  flex: none;
   display: flex;
   align-items: center;
   padding: 0 var(--window-buttons) 0 4px;
@@ -48,18 +58,19 @@ body {
   transition:
     background 360ms ease,
     color 360ms ease;
-  /* No drag ground here: a drag region on the bar covered the controls too, so Windows took
-     every click as a caption click and the page never saw it. Only the small grip below moves
-     the window from the bar; the sidebar's own ground still moves it as before. */
+  /* The bar itself stays client: over a drag ground the page stops hearing the pointer's moves
+     (HTCAPTION), and with them its leave — after a click or a window drag on the bar it never
+     hid again. The band below is the drag ground; the gaps between the controls are not. */
   -webkit-app-region: no-drag;
 }
 
+/* The window's drag ground: a band across the bar's top, as a title bar's edge. */
 #bar-drag {
   position: absolute;
   left: 0;
   top: 0;
-  width: 8px;
-  height: 100%;
+  width: 100%;
+  height: 10px;
   -webkit-app-region: drag;
 }
 
@@ -281,30 +292,131 @@ button * {
   -webkit-app-region: no-drag;
 }
 
-#bar[data-bare] > :not(#toast) {
+/* The drag band stays (as a corner sliver, with data-thin's): an empty region batch is ignored
+   by the browser, and the bare strip must stay client for its own peek to work. */
+#bar[data-bare] > :not(#toast):not(#bar-drag) {
   display: none;
 }
 
 /* Thin (the retracted bar's edge strip over the top gap, or the bar sliding in or out): nothing
    drawn, so the window and the page's own card show, and no drag ground, so the pointer's arrival
-   reaches this page and brings the bar back. Listed no-drag rather than hidden, so the page's
-   region list replaces the bar's old drag ground. */
+   reaches this page and brings the bar back. The drag band steps aside to a corner sliver rather
+   than hiding: an empty region batch is ignored by the browser, which would leave the whole strip
+   caption ground forever and the bar could never come back. */
 html[data-thin] #bar {
   background: transparent;
   box-shadow: none;
   -webkit-app-region: no-drag;
 }
 
-html[data-thin] #bar > *,
+html[data-thin] #bar > *:not(#bar-drag),
+html[data-thin] #bookmarks-bar,
 html[data-thin] #home-sky {
   display: none !important;
 }
 
+html[data-thin] #bar-drag,
+#bar[data-bare] #bar-drag {
+  width: 8px;
+  height: 2px;
+}
+
 /* Fullscreen has no window buttons (flecha_frame_view.cc hides them). */
 @media (display-mode: fullscreen) {
-  #bar {
+  body {
     --window-buttons: 6px;
   }
+}
+
+/* The bookmarks row: the Space's favorites (topbar.ts), under the top bar, in the page's
+   colour, joining it to the page card as the bar above does. The window buttons keep their room
+   at its right end, as they keep the top bar's. Positioned, so the home's fixed sky never
+   paints over it. */
+#bookmarks-bar {
+  position: relative;
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  padding: 0 var(--window-buttons) 0 4px;
+  box-sizing: border-box;
+  background: var(--site-bg, #fff);
+  color: var(--site-fg, #1d1d1f);
+  overflow: hidden;
+  /* Drag ground between its buttons, as the bar above. */
+  -webkit-app-region: drag;
+}
+#bookmarks-bar[hidden] {
+  display: none;
+}
+
+/* On the home the row is glass over the sky, as the bar above it. */
+#bar[data-sky] + #bookmarks-bar {
+  background: transparent;
+}
+
+.bookmark {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  height: 22px;
+  padding: 0 8px;
+  border-radius: var(--radius-sm);
+  max-width: 180px;
+  flex: none;
+}
+.bookmark:hover {
+  background: color-mix(in srgb, var(--site-fg, #1d1d1f) 12%, transparent);
+}
+/* Where a dragged folder will land. */
+.bookmark.folder-drag-over,
+#bookmarks-bar.folder-drag-over {
+  outline: 1.5px dashed color-mix(in srgb, var(--site-fg, #1d1d1f) 55%, transparent);
+  outline-offset: -2px;
+}
+.bookmark img {
+  width: 14px;
+  height: 14px;
+  border-radius: 3px;
+  flex: none;
+}
+.bookmark img:not([src]),
+.bookmark img[src=''] {
+  display: none;
+}
+.bookmark svg {
+  width: 14px;
+  height: 14px;
+  flex: none;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.5;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+.bookmark .name {
+  font-size: 12px;
+  line-height: 1.2;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.bookmarks-empty {
+  padding: 0 8px;
+  font-size: 12px;
+  opacity: 0.55;
+}
+
+/* Renaming a folder in place (topbar.ts), as the sidebar renames tabs and folders. */
+.bookmark-rename {
+  width: 120px;
+  border: 0;
+  background: none;
+  color: inherit;
+  font: inherit;
+  font-size: 12px;
+  outline: none;
 }
 
 /* Beside the window buttons, whatever the site group in the middle does. */
@@ -380,4 +492,15 @@ html[data-space-texture='tweed'] {
   --zen-grain-tile: 100px;
   --zen-grain-alpha: 0.85;
   --zen-grain-rendering: auto;
+}
+
+/* The grain layer's rule above (`#bar > *`, same specificity, later) turns the absolutely
+   placed children relative — the drag band would join the flex row and push every control off
+   the window. They stay absolutely placed, still above the grain. */
+#bar > #bar-drag,
+#bar > #site-group,
+#bar > #app-menu,
+#bar > #toast {
+  position: absolute;
+  z-index: 1;
 }

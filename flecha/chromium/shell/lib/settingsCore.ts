@@ -41,6 +41,8 @@ export function settingsView(store: Store, env: SettingsEnvironment): SettingsVi
     peekPinnedLinks: s.peekPinnedLinks !== false,
     addressInSidebar: !!s.addressInSidebar,
     commandBar: s.commandBar !== false,
+    retractTopBar: !!s.retractTopBar,
+    bookmarksBar: !!s.bookmarksBar,
     shortcuts: shortcutList(s),
     openLinksInFlechinha: s.openLinksInFlechinha !== false,
     agent: {
@@ -94,8 +96,8 @@ export async function applySettings(store: Store, patch: SettingsPatch, effects:
   }
   if (patch.environments !== undefined) store.setEnvironments(sanitizeEnvironments(patch.environments));
   if (patch.askWhereToSave !== undefined) store.setDownloads({ askWhereToSave: patch.askWhereToSave });
-  if (patch.theme || patch.peekPinnedLinks !== undefined || patch.addressInSidebar !== undefined || patch.commandBar !== undefined) {
-    store.setPreferences({ theme: patch.theme, peekPinnedLinks: patch.peekPinnedLinks, addressInSidebar: patch.addressInSidebar, commandBar: patch.commandBar });
+  if (patch.theme || patch.peekPinnedLinks !== undefined || patch.addressInSidebar !== undefined || patch.commandBar !== undefined || patch.retractTopBar !== undefined || patch.bookmarksBar !== undefined) {
+    store.setPreferences({ theme: patch.theme, peekPinnedLinks: patch.peekPinnedLinks, addressInSidebar: patch.addressInSidebar, commandBar: patch.commandBar, retractTopBar: patch.retractTopBar, bookmarksBar: patch.bookmarksBar });
     effects.theme(store.state.theme ?? 'system');
   }
   if (patch.openLinksInFlechinha !== undefined) store.setOpenLinksInFlechinha(patch.openLinksInFlechinha);

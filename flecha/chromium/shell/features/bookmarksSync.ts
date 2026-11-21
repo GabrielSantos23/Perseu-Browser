@@ -61,7 +61,7 @@ async function sync(store: Store) {
     const wanted: Wanted[] = spaces.map((space) => ({
       title: spaceFolderTitle(space),
       children: [
-        ...(space.favorites.length ? [{ title: FAVORITES_TITLE, children: pinnedWanted(space.favorites.map((id: string) => ({ kind: 'tab', tabId: id }) as PinnedNode), store) }] : []),
+        ...(space.favorites.length ? [{ title: FAVORITES_TITLE, children: pinnedWanted(space.favorites, store) }] : []),
         ...pinnedWanted(space.pinned, store),
       ],
     }));

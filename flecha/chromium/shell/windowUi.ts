@@ -10,6 +10,7 @@
  */
 import type { UiState } from '../shared/types';
 import { cmd, invoke, on } from './client';
+import { fullBarHeight, topBarColors } from './lib/topBar';
 import type { MenuRun } from './protocol';
 import { askDialog, popupMenu, setMenuPoint, type MenuEntry } from './settingsUi';
 
@@ -60,9 +61,16 @@ export function setupWindowUi(h: WindowUiHooks) {
   hooks = h;
 }
 
-/** Asks for the background's menu `name` about `id`, shows it at the pointer and runs the pick. */
-export async function showMenu(name: 'tabMenu' | 'spaceMenu' | 'sidebarMenu' | 'extensionMenu' | 'appMenu' | 'reloadMenu', id: string, at?: { right: number; top: number }) {
-  const items = await invoke<MenuEntry<MenuRun>[] | undefined>(name, id);
+/** Asks for the background's menu `name` about `id`, shows it at the pointer and runs the pick.
+    `extra` goes to the menu builder as a second argument (the bookmarks menus take a "manage"
+    flag: a folder's contents on a click, its editing functions on a right-click). */
+export async function showMenu(
+  name: 'tabMenu' | 'spaceMenu' | 'sidebarMenu' | 'extensionMenu' | 'appMenu' | 'reloadMenu' | 'bookmarksMenu' | 'bookmarksItemMenu' | 'bookmarksBarMenu',
+  id: string,
+  at?: { right: number; top: number },
+  extra?: unknown,
+) {
+  const items = await invoke<MenuEntry<MenuRun>[] | undefined>(name, id, extra);
   if (!items?.length) return;
   const picked = await overWindow('menu', () => popupMenu(items, at));
   if (picked) await runMenuItem(picked.run);
@@ -70,11 +78,11 @@ export async function showMenu(name: 'tabMenu' | 'spaceMenu' | 'sidebarMenu' | '
 
 // The top bar's "⋮" (and its pinned extensions' menus): the bar is too short to draw them, so
 // this window's frame page does.
-on('app-menu', async (window: string | null, at: { right: number; top: number }, menu: 'appMenu' | 'reloadMenu' | 'extensionMenu' = 'appMenu', id = '') => {
+on('app-menu', async (window: string | null, at: { right: number; top: number }, menu: 'appMenu' | 'reloadMenu' | 'extensionMenu' | 'bookmarksMenu' | 'bookmarksItemMenu' | 'bookmarksBarMenu' = 'appMenu', id = '', manage = false) => {
   if (!windowId || window !== new URLSearchParams(location.search).get('window')) return;
   // The arrow keys go to the menu, not to the top bar that was clicked.
   await chrome.flechaPrivate.focus('frame', await windowId);
-  await showMenu(menu, id, at);
+  await showMenu(menu, id, at, manage);
 });
 
 // A right-click on the sidebar's drag ground: the browser takes it from the window's caption
@@ -97,6 +105,16 @@ export async function localMenu(items: Array<{ id: string; label: string } | { s
 }
 
 async function runMenuItem(run: MenuRun) {
+  // The bookmarks-bar folder functions: the menu that asked lives on this page with the
+  // keyboard focus, so the field opens here — the bar's own input would open unfocused.
+  if ('cmd' in run && run.cmd === 'renameFavoriteFolder' && run.args.length <= 1) {
+    await renameBarFolder(String(run.args[0] ?? ''));
+    return;
+  }
+  if ('cmd' in run && run.cmd === 'newFavoriteFolder' && run.args.length <= 1) {
+    await renameBarFolder(undefined, typeof run.args[0] === 'string' && run.args[0] ? run.args[0] : undefined);
+    return;
+  }
   if ('cmd' in run) cmd(run.cmd)(...run.args);
   else if ('browser' in run) await chrome.flechaPrivate.runBrowserCommand(run.browser, windowId && (await windowId)).catch((err) => console.error('Perseu menu', err));
   else if ('copy' in run) await copy(run.copy, run.message);
@@ -108,6 +126,51 @@ async function runMenuItem(run: MenuRun) {
   else if ('deleteSpace' in run) await confirmDeleteSpace(run.deleteSpace);
   else if ('clearSpaceData' in run) await confirmClearSpaceData(run.clearSpaceData);
   else if ('uninstallExtension' in run) await chrome.management.uninstall(run.uninstallExtension, { showConfirmDialog: true }).catch(() => undefined);
+}
+
+/** Renames — or, without a folder id, creates — a bookmarks-bar folder: a field laid over the
+    bar's own place, in the bar's colours, on this page — which holds the keyboard focus the
+    bar's own input would lack. */
+async function renameBarFolder(folderId?: string, parentId?: string) {
+  const current = folderId ? await invoke<string>('favoriteFolderName', folderId).catch(() => '') : '';
+  const state = hooks?.state();
+  const left = state?.sidebarMode === 'docked' ? 230 : 8;
+  const { bg, fg } = topBarColors(state?.siteColor);
+  await overWindow('rename', async () => {
+    const box = Object.assign(document.createElement('div'), { className: 'bar-rename' });
+    Object.assign(box.style, {
+      left: `${left}px`,
+      top: '8px',
+      right: '8px',
+      height: `${fullBarHeight(state?.bookmarksBar)}px`,
+      background: bg,
+      color: fg,
+    });
+    const input = Object.assign(document.createElement('input'), { value: current, spellcheck: false });
+    box.append(input);
+    document.body.append(box);
+    input.focus();
+    input.select();
+    let closed = false;
+    const done = (save: boolean) => {
+      if (closed) return;
+      closed = true;
+      const value = input.value.trim();
+      box.remove();
+      if (!save || !value || value === (folderId ? current : '')) return;
+      if (folderId) cmd('renameFavoriteFolder')(folderId, value);
+      else cmd('newFavoriteFolder')(parentId, value);
+    };
+    input.addEventListener('blur', () => done(true));
+    input.addEventListener('keydown', (e: KeyboardEvent) => {
+      if (e.key === 'Enter') input.blur();
+      else if (e.key === 'Escape') {
+        input.value = current;
+        input.blur();
+      }
+    });
+    await new Promise<void>((resolve) => input.addEventListener('blur', () => resolve(), { once: true }));
+  });
 }
 
 /** Electron's "Sign out of everything in “Space”?" message box, in the page. */

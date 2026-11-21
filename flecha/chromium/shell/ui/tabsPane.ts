@@ -2,6 +2,7 @@ import { spaceTint } from '../lib/spaceTint';
 import type { PinnedNode, TabPlacement, TabsEdit, TabsView } from '../../shared/types';
 import type { IconName } from './icons.js';
 import { SPACE_COLORS, SPACE_EMOJIS } from './spaceChoices.js';
+import { spaceIcon } from './spaceIcons.js';
 
 /**
  * Settings → Tabs & Spaces: favorites and every Space's pinned tree and Today tabs in one
@@ -184,7 +185,7 @@ export function setupTabsPane(icon: (name: IconName) => SVGSVGElement) {
       el(
         'button',
         { class: 'tm-space-badge', style: `--space: ${spaceTint(space.color, false)}`, title: 'Icon and colour', onclick: (e: MouseEvent) => openSpaceEditor(space.id, e.currentTarget as HTMLElement) },
-        space.emoji || space.name[0]?.toUpperCase() || '•',
+        space.emoji ? spaceIcon(space.emoji) : (space.name[0]?.toUpperCase() || '•'),
       ),
       name,
       space.isolated ? el('span', { class: 'tm-tag', title: 'Separate cookies and logins' }, icon('lock')) : null,
@@ -857,7 +858,7 @@ export function setupTabsPane(icon: (name: IconName) => SVGSVGElement) {
     if (document.activeElement !== emoji) emoji.value = space.emoji ?? '';
     node.querySelector('.tm-pop-emojis')!.replaceChildren(
       el('button', { class: `tm-emoji${space.emoji ? '' : ' selected'}`, title: 'No icon', onclick: () => update({ emoji: '' }) }, icon('close')),
-      ...SPACE_EMOJIS.map((e) => el('button', { class: `tm-emoji${space.emoji === e ? ' selected' : ''}`, onclick: () => update({ emoji: e }) }, e)),
+      ...SPACE_EMOJIS.map((e) => el('button', { class: `tm-emoji${space.emoji === e ? ' selected' : ''}`, onclick: () => update({ emoji: e }) }, spaceIcon(e))),
     );
     const custom = el('input', { type: 'color', value: spaceTint(space.color, false), title: 'Custom colour' });
     custom.addEventListener('input', () => update({ color: custom.value }));

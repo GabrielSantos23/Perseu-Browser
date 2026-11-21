@@ -1287,6 +1287,24 @@ code {
   color: var(--text-3);
 }
 
+/* Space emojis render as solid Lucide icons (spaceIcons.ts), in the text colour of
+   whatever holds them — the tinted badge, or the picker buttons. tokens.css makes every
+   svg stroke-only, so the solid fill is set here. */
+.space-icon {
+  fill: currentColor;
+}
+
+.tm-space-badge .space-icon {
+  width: 14px;
+  height: 14px;
+}
+
+.tm-emoji .space-icon {
+  width: 15px;
+  height: 15px;
+  color: var(--text);
+}
+
 .tm-pop-swatches {
   display: flex;
   flex-wrap: wrap;

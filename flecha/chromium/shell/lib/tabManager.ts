@@ -78,7 +78,7 @@ export class TabManager {
     }
     return {
       // shortcut: only the open Space's favorites are listed; give each Space its group if people manage them here.
-      favorites: s.spaces.find((space) => space.id === s.activeSpaceId)?.favorites ?? [],
+      favorites: pinnedTabIds(s.spaces.find((space) => space.id === s.activeSpaceId)?.favorites ?? []),
       spaces: s.spaces.map(({ id, name, emoji, color, pinned, today, isolated }) => ({ id, name, emoji, color, pinned, today, isolated })),
       activeSpaceId: s.activeSpaceId,
       tabs,

@@ -2,6 +2,7 @@ import type { FlechaApi, SearchEngineId, UiState } from '../../shared/types';
 import { browserDetail, importSummary } from './browserImport.js';
 import { fieldColor, fieldPoint, nextStop, paintField, throttled } from './colorField.js';
 import { SPACE_COLORS } from './spaceChoices.js';
+import { spaceIcon } from './spaceIcons.js';
 import { spaceTint } from '../lib/spaceTint';
 import { isDark } from '../lib/topBar';
 import { formName, printSky } from './sky.js';
@@ -280,7 +281,7 @@ export function setupOnboarding(api: FlechaApi, h: H) {
         el.style.setProperty('--mk-tint', tints[0]);
         el.style.setProperty('--mk-gradient', tints.length > 1 ? `linear-gradient(180deg, ${tints.join(', ')})` : 'none');
         el.dataset.ink = isDark(tints[0]) ? 'light' : 'dark';
-        spaceEmoji.textContent = sp?.emoji ?? '';
+        spaceEmoji.replaceChildren(spaceIcon(sp?.emoji));
         spaceName.textContent = sp?.name || 'Space';
         const chosen = APPS.filter((a) => apps.has(a.name));
         const key = chosen.map((a) => a.name + (appIcon(a) ? '+' : '')).join();
@@ -627,7 +628,7 @@ export function setupOnboarding(api: FlechaApi, h: H) {
         h(
           'div',
           { class: 'tour-emojis', role: 'radiogroup', 'aria-label': 'Space icon' },
-          ...EMOJIS.map((emoji) => h('button', { class: sp.emoji === emoji ? 'on' : '', role: 'radio', 'aria-checked': String(sp.emoji === emoji), onclick: () => api.updateSpace(sp.id, { emoji }) }, emoji)),
+          ...EMOJIS.map((emoji) => h('button', { class: sp.emoji === emoji ? 'on' : '', role: 'radio', 'aria-checked': String(sp.emoji === emoji), onclick: () => api.updateSpace(sp.id, { emoji }) }, spaceIcon(emoji))),
         ),
         h('p', { class: 'label tour-label' }, 'Colour'),
         (picker.update(), picker.el),

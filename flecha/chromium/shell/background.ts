@@ -6,11 +6,11 @@
  * pinned tabs costs nothing until you use them. Chromium tabs that pages open themselves
  * (links to a new tab, window.open) become Flecha tabs.
  */
-import { Store, type StatePersistence } from '../shared/store';
+import { Store, findFolder, pinnedTabIds, type StatePersistence } from '../shared/store';
 import { resolveInput, searchEngine } from './lib/url';
 import { shortcutHints, type ShortcutId } from './lib/shortcuts';
 import { describe as describeEnvironment } from './lib/environments';
-import type { BrowserState, DropTarget, SearchEngineId, UiState } from '../shared/types';
+import type { BrowserState, DropTarget, PinnedNode, SearchEngineId, UiState } from '../shared/types';
 import { broadcast, call, handle, listen, onConnect } from './hub';
 import type { MenuRun } from './protocol';
 import type { MenuEntry } from './settingsUi';
@@ -762,9 +762,10 @@ async function start() {
     const run = (id: ShortcutId) => ({ run: does('run', id), keys: shown(id) });
     const active = store.activeTab;
     const space = store.activeSpace;
-    const favorite = !!active && space.favorites?.includes(active.id);
+    const favorite = !!active && store.locate(active.id)?.zone === 'favorites';
     return [
       { label: 'New Tab', ...run('newTab') },
+      { label: 'New Folder', run: does('newFavoriteFolder') },
       { label: 'New Private Window', ...run('newIncognito') },
       { label: 'Reopen Closed Tab', ...run('reopenTab') },
       SEPARATOR,
@@ -777,8 +778,83 @@ async function start() {
       SEPARATOR,
       { label: 'Split View…', ...run('splitNew'), enabled: !!space.activeTabId && !space.split },
       { label: 'Show/Hide Sidebar', ...run('toggleSidebar') },
+      { label: 'Show Bookmarks Bar', checked: !!store.state.bookmarksBar, run: does('setPreferences', { bookmarksBar: !store.state.bookmarksBar }) },
       SEPARATOR,
       { label: 'Settings…', ...run('settings') },
+    ];
+  }
+
+  /** The bookmarks bar's menus: the active Space's favorites, which the bar and the sidebar's
+      folder tiles both show. Neither is big enough to draw a menu, so the window's frame page
+      does (topbar.ts asks through openAppMenu; the sidebar through showMenu). */
+  function favoriteEntries(nodes: PinnedNode[]): MenuEntry<MenuRun>[] {
+    return nodes.map((node) => {
+      if (node.kind === 'folder') {
+        return node.children.length
+          ? { label: node.name, submenu: favoriteEntries(node.children) }
+          : { label: `${node.name} (empty)`, enabled: false, run: does('noop') };
+      }
+      const tab = store.state.tabs[node.tabId];
+      return tab?.url
+        ? { label: tab.title || tab.url, run: does('activate', node.tabId) }
+        : { label: '(missing)', enabled: false, run: does('noop') };
+    });
+  }
+
+  /** A favorites folder's menu. A click on the folder opens its contents; a right-click also
+      carries the folder's editing functions (remove a link, rename, a folder inside, delete).
+      Pinned folders (the squares') serve the same menu, with the matching remove action. */
+  function bookmarksMenu(folderId: string, manage: boolean): MenuEntry<MenuRun>[] | undefined {
+    if (incognito) return undefined;
+    const inFavorites = findFolder(store.activeSpace.favorites, folderId);
+    const folder = inFavorites ?? findFolder(store.activeSpace.pinned, folderId);
+    if (!folder) return undefined;
+    const contents = favoriteEntries(folder.children);
+    if (!manage) return contents;
+    // Every favorite inside, however deep, so a link in a folder can be removed from this menu.
+    const inside = (function tabsOf(nodes: PinnedNode[]): Array<Extract<PinnedNode, { kind: 'tab' }>> {
+      return nodes.flatMap((n) => (n.kind === 'tab' ? [n] : tabsOf(n.children)));
+    })(folder.children).filter((n) => store.state.tabs[n.tabId]?.url);
+    return [
+      ...contents,
+      ...(inside.length
+        ? [
+            SEPARATOR,
+            {
+              label: inFavorites ? 'Remove from Favorites' : 'Remove from Pinned',
+              submenu: inside.map((n) => {
+                const tab = store.state.tabs[n.tabId]!;
+                return { label: tab.title || tab.url, run: does(inFavorites ? 'toggleFavorite' : 'togglePin', n.tabId) };
+              }),
+            },
+          ]
+        : []),
+      SEPARATOR,
+      { label: 'Rename Folder…', run: does('renameFavoriteFolder', folderId) },
+      { label: 'New Folder', run: does('newFavoriteFolder', folderId) },
+      { label: 'Delete Folder', danger: true, run: does('deleteFavoriteFolder', folderId) },
+    ];
+  }
+
+  function bookmarksItemMenu(tabId: string): MenuEntry<MenuRun>[] | undefined {
+    const tab = store.state.tabs[tabId];
+    if (!tab?.url || incognito) return undefined;
+    return [
+      { label: 'Open in New Tab', run: does('newTab', tab.url) },
+      { label: 'Copy Link', run: { copy: tab.url, message: 'Link copied' } },
+      SEPARATOR,
+      { label: 'Remove from Favorites', run: does('toggleFavorite', tabId) },
+    ];
+  }
+
+  /** Right-click on the bookmarks bar's own ground (topbar.ts). */
+  function bookmarksBarMenu(): MenuEntry<MenuRun>[] {
+    const active = store.activeTab;
+    return [
+      { label: 'Add Current Page', run: does('toggleFavorite', active?.id ?? ''), enabled: !!active && active.url !== 'about:blank' },
+      { label: 'New Folder', run: does('newFavoriteFolder') },
+      SEPARATOR,
+      { label: 'Show Bookmarks Bar', checked: !!store.state.bookmarksBar, run: does('setPreferences', { bookmarksBar: !store.state.bookmarksBar }) },
     ];
   }
 
@@ -881,8 +957,39 @@ async function start() {
     sidebarMenu,
     appMenu,
     reloadMenu,
-    openAppMenu: (window: unknown, at: unknown, menu?: unknown, id?: unknown) =>
-      broadcast('app-menu', window, at, menu === 'reloadMenu' || menu === 'extensionMenu' ? menu : 'appMenu', typeof id === 'string' ? id : ''),
+    bookmarksMenu: (id: string, manage?: unknown) => bookmarksMenu(String(id), manage === true),
+    bookmarksItemMenu: (id: string) => bookmarksItemMenu(String(id)),
+    bookmarksBarMenu: () => bookmarksBarMenu(),
+    newFavoriteFolder: spacesOnly((parentId?: string, name?: string) => {
+      // A folder inside a pinned folder (the squares') belongs to the pinned tree; one from the
+      // bar's own ground, or the favorites tree, belongs to the favorites. Created with its name
+      // (the frame page's field) it needs no renaming round-trip; an unnamed one asks for it.
+      const inPinned = typeof parentId === 'string' && !!parentId && !!findFolder(store.activeSpace.pinned, parentId);
+      const named = typeof name === 'string' && !!name.trim();
+      const id = store.newFolder(named ? String(name) : 'New Folder', { zone: inPinned ? 'pinned' : 'favorites', ...(typeof parentId === 'string' && parentId ? { parentId } : {}) });
+      if (id && !named) broadcast('rename-favorite-folder', id);
+    }),
+    favoriteFolderName: (id: string) =>
+      (findFolder(store.activeSpace.favorites, String(id)) ?? findFolder(store.activeSpace.pinned, String(id)))?.name,
+    renameFavoriteFolder: spacesOnly((id: string, name?: string) => {
+      if (name) store.renameFolder(String(id), name);
+      else broadcast('rename-favorite-folder', String(id));
+    }),
+    deleteFavoriteFolder: spacesOnly((id: string) => void store.deleteFolder(String(id), false)),
+    moveFolder: spacesOnly((id: string, to: { spaceId?: string; folderId?: string; beforeId?: string }) => {
+      void store.moveFolder(String(id), { spaceId: typeof to?.spaceId === 'string' ? to.spaceId : store.state.activeSpaceId, folderId: typeof to?.folderId === 'string' ? to.folderId : undefined, beforeId: typeof to?.beforeId === 'string' ? to.beforeId : undefined });
+    }),
+    openAppMenu: (window: unknown, at: unknown, menu?: unknown, id?: unknown, manage?: unknown) =>
+      broadcast(
+        'app-menu',
+        window,
+        at,
+        menu === 'reloadMenu' || menu === 'extensionMenu' || menu === 'bookmarksMenu' || menu === 'bookmarksItemMenu' || menu === 'bookmarksBarMenu'
+          ? menu
+          : 'appMenu',
+        typeof id === 'string' ? id : '',
+        manage === true,
+      ),
     emptyCacheReload: async () => {
       const chromeId = activeChromeId();
       const url = chromeId === undefined ? undefined : (await chrome.tabs.get(chromeId).catch(() => undefined))?.url;
@@ -916,7 +1023,7 @@ async function start() {
       void unload([...live.keys()].filter((t) => !keep.has(t))).then(sendState);
     },
     closeTabs: (id: string, which: string) => void unload(store.closeTodayTabs(id, which === 'others' ? 'others' : 'below')),
-    updateSpace: (id: string, patch: { name?: string; emoji?: string; color?: string; colors?: string[]; theme?: import('../shared/types').SpaceTheme; pinnedExtensions?: string[] }) => store.updateSpace(id, patch ?? {}),
+    updateSpace: (id: string, patch: { name?: string; emoji?: string; botColor?: string; color?: string; colors?: string[]; theme?: import('../shared/types').SpaceTheme; pinnedExtensions?: string[] }) => store.updateSpace(id, patch ?? {}),
     // Its open tabs reopen in the other partition (sync() finds them in the wrong one).
     setSpaceIsolated: spacesOnly((id: string, isolated: boolean) => {
       if (!canIsolate) return broadcast('flash', 'Separate cookies aren’t in this build yet');
@@ -1005,7 +1112,7 @@ async function start() {
     pinSites: spacesOnly((sites: unknown) => {
       if (!Array.isArray(sites)) return;
       const space = store.activeSpace;
-      const have = new Set(space.favorites.map((id) => store.state.tabs[id]?.url));
+      const have = new Set(pinnedTabIds(space.favorites).map((id) => store.state.tabs[id]?.url));
       for (const site of sites.slice(0, 24)) {
         const url = typeof site?.url === 'string' && /^https:\/\//.test(site.url) ? site.url : undefined;
         if (!url || have.has(url)) continue;
@@ -1015,10 +1122,11 @@ async function start() {
         have.add(url);
       }
     }),
-    setPreferences: (prefs: { theme?: string; searchEngine?: string; adBlock?: boolean }) => {
+    setPreferences: (prefs: { theme?: string; searchEngine?: string; adBlock?: boolean; bookmarksBar?: boolean }) => {
       if (prefs?.theme === 'system' || prefs?.theme === 'light' || prefs?.theme === 'dark') store.setPreferences({ theme: prefs.theme });
       if (prefs?.searchEngine) store.setSearchEngine(prefs.searchEngine as SearchEngineId);
       if (typeof prefs?.adBlock === 'boolean') store.setAdBlock(prefs.adBlock);
+      if (typeof prefs?.bookmarksBar === 'boolean') store.setPreferences({ bookmarksBar: prefs.bookmarksBar });
     },
     // Google's public autocomplete; the next service is asked only when one fails, not when it
     // has nothing to suggest. What's typed in an incognito window stays out of it.

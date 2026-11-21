@@ -48,12 +48,12 @@ export class Store {
   }
 
   allTabIds(space: Space): string[] {
-    return [...space.favorites, ...pinnedTabIds(space.pinned), ...space.today];
+    return [...pinnedTabIds(space.favorites), ...pinnedTabIds(space.pinned), ...space.today];
   }
 
   locate(tabId: string): Location | undefined {
     for (const space of this.state.spaces) {
-      if (space.favorites.includes(tabId)) return { space, zone: 'favorites' };
+      if (pinnedTabIds(space.favorites).includes(tabId)) return { space, zone: 'favorites' };
       if (space.today.includes(tabId)) return { space, zone: 'today' };
       if (pinnedTabIds(space.pinned).includes(tabId)) return { space, zone: 'pinned' };
     }
@@ -144,7 +144,12 @@ export class Store {
     };
 
     if (target.zone === 'favorites') {
-      insert(targetSpace.favorites);
+      // The favorites are a tree like the pinned tabs: into a folder, beside the tab dropped
+      // on, or at the end.
+      const parent = target.folderId ? findFolder(targetSpace.favorites, target.folderId)?.children : undefined;
+      const list = parent ?? (target.beforeTabId ? findParentList(targetSpace.favorites, target.beforeTabId) : undefined) ?? targetSpace.favorites;
+      const i = target.beforeTabId ? list.findIndex((n) => nodeId(n) === target.beforeTabId) : -1;
+      list.splice(i < 0 ? list.length : i, 0, { kind: 'tab', tabId });
     } else if (target.zone === 'today') {
       insert(targetSpace.today);
     } else {
@@ -288,13 +293,20 @@ export class Store {
     this.moveTab(tabId, { zone: loc?.zone === 'favorites' ? 'today' : 'favorites' });
   }
 
-  /** In the active Space unless `where` names another, optionally inside a folder. Returns the new folder's id. */
-  newFolder(name = 'New Folder', where: { spaceId?: string; parentId?: string } = {}): string | undefined {
+  /** In the active Space unless `where` names another, optionally inside a folder, in the pinned
+      tabs or the favorites (the bookmarks bar's folders). A name a sibling folder already has
+      gains a number ("New Folder (1)"), so two folders never look the same. Returns the new folder's id. */
+  newFolder(name = 'New Folder', where: { spaceId?: string; parentId?: string; zone?: 'pinned' | 'favorites' } = {}): string | undefined {
     const space = where.spaceId ? this.state.spaces.find((s) => s.id === where.spaceId) : this.activeSpace;
-    const list = where.parentId ? (space && findFolder(space.pinned, where.parentId))?.children : space?.pinned;
+    const tree = where.zone === 'favorites' ? space?.favorites : space?.pinned;
+    const list = where.parentId ? (space && findFolder(tree ?? [], where.parentId))?.children : tree;
     if (!list) return undefined;
     const id = randomUUID();
-    list.push({ kind: 'folder', id, name: name.trim().slice(0, 80) || 'New Folder', open: true, children: [] });
+    const base = name.trim().slice(0, 80) || 'New Folder';
+    const taken = new Set(list.flatMap((n) => (n.kind === 'folder' ? [n.name.toLowerCase()] : [])));
+    let unique = base;
+    for (let i = 1; taken.has(unique.toLowerCase()); i++) unique = `${base} (${i})`;
+    list.push({ kind: 'folder', id, name: unique, open: true, children: [] });
     this.changed();
     return id;
   }
@@ -307,9 +319,14 @@ export class Store {
   }
 
   renameFolder(folderId: string, name: string) {
-    const folder = this.findFolder(folderId)?.folder;
-    if (!folder || !name.trim()) return;
-    folder.name = name.trim();
+    const found = this.findFolder(folderId);
+    if (!found || !name.trim()) return;
+    // As on creation, a sibling's name gains a number rather than meeting a double.
+    const base = name.trim().slice(0, 80) || found.folder.name;
+    const taken = new Set(found.parent.flatMap((n) => (n !== found.folder && n.kind === 'folder' ? [n.name.toLowerCase()] : [])));
+    let unique = base;
+    for (let i = 1; taken.has(unique.toLowerCase()); i++) unique = `${base} (${i})`;
+    found.folder.name = unique;
     this.changed();
   }
 
@@ -332,13 +349,17 @@ export class Store {
     return removed;
   }
 
-  /** Moves a folder within the pinned tabs of any Space; never into itself. Returns whether it moved. */
+  /** Reorders a folder within the tree it is in — the favorites' or the pinned's. Moving it to
+      another Space puts it in that Space's pinned tree, as the tab manager always did. Never
+      into itself. Returns whether it moved. */
   moveFolder(folderId: string, to: { spaceId: string; folderId?: string; beforeId?: string }): boolean {
     const found = this.findFolder(folderId);
     const space = this.state.spaces.find((s) => s.id === to.spaceId);
     if (!found || !space || to.beforeId === folderId) return false;
     if (to.folderId && (to.folderId === folderId || findFolder(found.folder.children, to.folderId))) return false;
-    const list = to.folderId ? findFolder(space.pinned, to.folderId)?.children : space.pinned;
+    const sameSpace = found.space === space;
+    const tree = sameSpace ? (findFolder(space.favorites, folderId) ? space.favorites : space.pinned) : space.pinned;
+    const list = to.folderId ? findFolder(tree, to.folderId)?.children : tree;
     if (!list) return false;
     found.parent.splice(found.parent.indexOf(found.folder), 1);
     const i = to.beforeId ? list.findIndex((n) => nodeId(n) === to.beforeId) : -1;
@@ -378,12 +399,15 @@ export class Store {
   }
 
   /** Name, emoji and colour. Invalid values are ignored rather than stored. */
-  updateSpace(spaceId: string, patch: { name?: string; emoji?: string; color?: string; colors?: string[]; theme?: SpaceTheme; pinnedExtensions?: string[] }) {
+  updateSpace(spaceId: string, patch: { name?: string; emoji?: string; botColor?: string; color?: string; colors?: string[]; theme?: SpaceTheme; pinnedExtensions?: string[] }) {
     const space = this.state.spaces.find((s) => s.id === spaceId);
     if (!space) return;
     const name = typeof patch.name === 'string' ? patch.name.trim().slice(0, 40) : '';
     if (name) space.name = name;
     if (typeof patch.emoji === 'string') space.emoji = [...patch.emoji.trim()].slice(0, 2).join('') || undefined;
+    // '' goes back to the sidebar's ink.
+    if (patch.botColor === '') delete space.botColor;
+    else if (typeof patch.botColor === 'string' && /^#[0-9a-f]{6}$/i.test(patch.botColor)) space.botColor = patch.botColor.toLowerCase();
     if (typeof patch.color === 'string' && (patch.color === 'default' || /^#[0-9a-f]{6}$/i.test(patch.color))) {
       space.color = patch.color.toLowerCase();
       delete space.colors;
@@ -439,7 +463,7 @@ export class Store {
     if (this.state.spaces.length < 2) return [];
     const space = this.state.spaces.find((s) => s.id === spaceId);
     if (!space) return [];
-    const ids = [...space.favorites, ...pinnedTabIds(space.pinned), ...space.today];
+    const ids = [...pinnedTabIds(space.favorites), ...pinnedTabIds(space.pinned), ...space.today];
     for (const id of ids) delete this.state.tabs[id];
     this.state.spaces = this.state.spaces.filter((s) => s !== space);
     if (this.state.activeSpaceId === spaceId) this.state.activeSpaceId = this.state.spaces[0].id;
@@ -453,7 +477,7 @@ export class Store {
     if (!space) return [];
     space.isolated = isolated;
     this.changed();
-    return [...space.favorites, ...pinnedTabIds(space.pinned), ...space.today];
+    return [...pinnedTabIds(space.favorites), ...pinnedTabIds(space.pinned), ...space.today];
   }
 
   switchSpace(spaceId: string) {
@@ -545,11 +569,13 @@ export class Store {
     this.changed();
   }
 
-  setPreferences(prefs: { theme?: 'system' | 'light' | 'dark'; peekPinnedLinks?: boolean; addressInSidebar?: boolean; commandBar?: boolean }) {
+  setPreferences(prefs: { theme?: 'system' | 'light' | 'dark'; peekPinnedLinks?: boolean; addressInSidebar?: boolean; commandBar?: boolean; retractTopBar?: boolean; bookmarksBar?: boolean }) {
     if (prefs.theme && ['system', 'light', 'dark'].includes(prefs.theme)) this.state.theme = prefs.theme;
     if (typeof prefs.peekPinnedLinks === 'boolean') this.state.peekPinnedLinks = prefs.peekPinnedLinks;
     if (typeof prefs.addressInSidebar === 'boolean') this.state.addressInSidebar = prefs.addressInSidebar;
     if (typeof prefs.commandBar === 'boolean') this.state.commandBar = prefs.commandBar;
+    if (typeof prefs.retractTopBar === 'boolean') this.state.retractTopBar = prefs.retractTopBar;
+    if (typeof prefs.bookmarksBar === 'boolean') this.state.bookmarksBar = prefs.bookmarksBar;
     this.changed();
   }
 
@@ -614,7 +640,7 @@ export class Store {
       });
     }
     if (pristine || !s.spaces.some((sp) => sp.id === s.activeSpaceId)) s.activeSpaceId = s.spaces[0].id;
-    for (const fav of data.favorites) this.activeSpace.favorites.push(this.importTab(fav, true));
+    for (const fav of data.favorites) this.activeSpace.favorites.push({ kind: 'tab', tabId: this.importTab(fav, true) });
     this.changed();
   }
 
@@ -671,11 +697,13 @@ export class Store {
     this.saveTimer = setTimeout(() => this.saveNow(), 500);
   }
 
-  /** A folder in any Space, with the list it sits in. */
+  /** A folder in any Space's pinned tabs or favorites, with the list it sits in. */
   private findFolder(folderId: string) {
     for (const space of this.state.spaces) {
-      const folder = findFolder(space.pinned, folderId);
-      if (folder) return { space, folder, parent: findParentList(space.pinned, folderId)! };
+      for (const tree of [space.favorites, space.pinned]) {
+        const folder = findFolder(tree, folderId);
+        if (folder) return { space, folder, parent: findParentList(tree, folderId)! };
+      }
     }
     return undefined;
   }
@@ -693,7 +721,11 @@ export class Store {
       const i = to.beforeId ? list.indexOf(to.beforeId) : -1;
       return i < 0 ? list.length : i;
     };
-    if (to.zone === 'favorites') return void this.activeSpace.favorites.splice(before(this.activeSpace.favorites), 0, tabId);
+    if (to.zone === 'favorites') {
+      const favorites = this.activeSpace.favorites;
+      const i = to.beforeId ? favorites.findIndex((n) => nodeId(n) === to.beforeId) : -1;
+      return void favorites.splice(i < 0 ? favorites.length : i, 0, { kind: 'tab', tabId });
+    }
     const space = this.state.spaces.find((s) => s.id === to.spaceId)!;
     if (to.zone === 'today') return void space.today.splice(before(space.today), 0, tabId);
     const list = to.folderId ? findFolder(space.pinned, to.folderId)!.children : space.pinned;
@@ -708,8 +740,8 @@ export class Store {
       if (i >= 0) list.splice(i, 1);
     };
     for (const space of this.state.spaces) {
-      drop(space.favorites);
       drop(space.today);
+      removePinned(space.favorites, tabId);
       removePinned(space.pinned, tabId);
     }
   }
@@ -722,7 +754,7 @@ export class Store {
   }
 
   private detach(tabId: string, space: Space) {
-    space.favorites = space.favorites.filter((id) => id !== tabId);
+    removePinned(space.favorites, tabId);
     space.today = space.today.filter((id) => id !== tabId);
     removePinned(space.pinned, tabId);
   }
@@ -771,10 +803,15 @@ export class Store {
   }
 }
 
-/** Favorites used to be shared by every Space; a saved state's go to the Space it had open. */
-function favoritesInSpaces(state: BrowserState & { favorites?: string[] }): BrowserState {
-  for (const space of state.spaces) space.favorites ??= [];
-  (state.spaces.find((s) => s.id === state.activeSpaceId) ?? state.spaces[0]).favorites.push(...(state.favorites ?? []));
+/** Favorites used to be shared by every Space; a saved state's go to the Space it had open. They
+    used to be flat tab ids too; both shapes come back as the trees the Space stores now. */
+function favoritesInSpaces(state: BrowserState & { favorites?: unknown }): BrowserState {
+  const toNodes = (favorites: unknown): PinnedNode[] =>
+    Array.isArray(favorites)
+      ? favorites.flatMap((f) => (typeof f === 'string' ? [{ kind: 'tab', tabId: f } as PinnedNode] : f && typeof f === 'object' ? [f as PinnedNode] : []))
+      : [];
+  for (const space of state.spaces) space.favorites = toNodes(space.favorites);
+  (state.spaces.find((s) => s.id === state.activeSpaceId) ?? state.spaces[0]).favorites.push(...toNodes(state.favorites));
   delete state.favorites;
   return state;
 }

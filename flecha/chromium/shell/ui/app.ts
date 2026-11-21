@@ -1,10 +1,13 @@
+import { cmd, on } from '../client.js';
 import { devSuggestions } from './devCommands.js';
 import { HUGEICONS, ICONS, type IconName } from './icons.js';
 import { setupOnboarding } from './onboarding.js';
+import { showMenu } from '../windowUi.js';
 import { DEFAULT_SPACE_COLOR } from '../lib/spaceTint';
 import { themeGradient, themeInk, themeTint } from '../lib/zenTheme';
-import { isDark, luminance } from '../lib/topBar';
+import { fullBarHeight, isDark, luminance } from '../lib/topBar';
 import { SPACE_EMOJIS } from './spaceChoices.js';
+import { SPACE_BOTS, spaceIcon } from './spaceIcons.js';
 import { ThemePicker } from './themePicker.js';
 import type { DownloadInfo, DropTarget, ExtensionsView, FlechaApi, HistoryEntry, NowPlaying, PaletteMode, PeekState, PinnedNode, Space, SpaceTheme, TabInfo, UiState } from '../../shared/types';
 
@@ -19,6 +22,7 @@ const api = window.flecha;
 const surface = document.documentElement.dataset.surface as 'panel' | 'newtab' | undefined;
 const $ = <T extends HTMLElement = HTMLElement>(id: string) => document.getElementById(id) as T;
 const DRAG_TYPE = 'application/x-flecha-tab';
+const FOLDER_TYPE = 'application/x-flecha-folder';
 
 let state: UiState | undefined;
 
@@ -241,18 +245,34 @@ function render(s: UiState) {
   // never draws the empty state, the new tab page always does.
   renderEmptyState(s, space, surface === 'newtab' || (!active && surface !== 'panel'));
 
+  // The squares are the pinned tabs, always. The favorites are the bookmarks bar's row when it's
+  // on; off, they take the tree below, their folders opening in place.
   $('favorites').replaceChildren(
-    ...space.favorites
-      .map((id) => s.tabs[id])
-      .filter(Boolean)
-      .map((tab) => {
-        const active = tab.id === space.activeTabId;
-        const img = favicon(tab);
-        const el = h('button', { class: `fav${active ? ' active' : ''}`, 'aria-label': tabTitle(tab), 'aria-current': active ? 'page' : undefined }, img, audioBadge(tab));
-        tintFromIcon(el, img);
-        wireTab(el, tab, { zone: 'favorites', beforeTabId: tab.id });
-        return el;
-      }),
+    ...space.pinned.flatMap((node) => {
+      // A pinned folder, drawn as a tile: its contents open on a click, its menu (rename, a
+      // folder inside) on a right-click; also a drop target, so tabs can be dragged into it.
+      if (node.kind === 'folder') {
+        const el = h('button', { class: 'fav fav-folder', 'aria-label': node.name, title: node.name }, icon(node.open ? 'folderOpen' : 'folder'));
+        el.dataset.folderId = node.id;
+        // A rename in place edits the tile itself; its clicks don't open the menu then.
+        el.onclick = () => !el.isContentEditable && void showMenu('bookmarksMenu', node.id, undefined, false);
+        el.oncontextmenu = (e: Event) => {
+          e.preventDefault();
+          if (!el.isContentEditable) void showMenu('bookmarksMenu', node.id, undefined, true);
+        };
+        acceptDrops(el, { zone: 'pinned', folderId: node.id });
+        acceptFolderDrop(el, node.id);
+        return [el];
+      }
+      const tab = s.tabs[node.tabId];
+      if (!tab) return [];
+      const active = tab.id === space.activeTabId;
+      const img = favicon(tab);
+      const el = h('button', { class: `fav${active ? ' active' : ''}`, 'aria-label': tabTitle(tab), 'aria-current': active ? 'page' : undefined }, img, audioBadge(tab));
+      tintFromIcon(el, img);
+      wireTab(el, tab, { zone: 'pinned', beforeTabId: tab.id });
+      return [el];
+    }),
   );
 
   if (!$('fav-card').hidden) showFavCard();
@@ -261,14 +281,25 @@ function render(s: UiState) {
 
   const title = $('space-title');
   if (title.contentEditable !== 'true') title.textContent = space.name;
-  $('space-emoji').textContent = space.emoji ?? '';
-  $('space-emoji').hidden = !space.emoji;
+  // The Space's emoji renders as its bot (spaceIcons.ts), same colour as the text. Rebuilt only
+  // when the emoji changes, so a mood animation playing on it isn't restarted by every tick.
+  const spaceEmoji = $('space-emoji');
+  if (spaceEmoji.dataset.emoji !== (space.emoji ?? '')) {
+    spaceEmoji.replaceChildren(spaceIcon(space.emoji));
+    spaceEmoji.dataset.emoji = space.emoji ?? '';
+  }
+  spaceEmoji.hidden = !space.emoji;
+  spaceEmoji.style.color = space.botColor ?? '';
+  spaceEmoji.classList.toggle('bot-thinking', s.nav.loading);
   title.dataset.spaceId = space.id;
   $('space-isolated').hidden = !space.isolated;
 
   // Re-rendering would throw away a tab or folder name being typed in place.
   if (!document.querySelector('#scroll [contenteditable="true"]')) {
-    $('pinned').replaceChildren(...space.pinned.map((node) => renderNode(node, space, undefined)));
+    // The tree is the favorites', and only while the bar isn't showing them; its folders open
+    // in place, as the pinned tree did. The drop target follows what the tree holds.
+    treeDropTarget.zone = s.bookmarksBar ? 'pinned' : 'favorites';
+    $('pinned').replaceChildren(...(s.bookmarksBar ? [] : space.favorites.map((node) => renderNode(node, space, undefined, 'favorites'))));
     $('today').replaceChildren(...todayRows(s, space));
   }
 
@@ -289,7 +320,7 @@ function render(s: UiState) {
             api.spaceMenu(sp.id);
           },
         },
-        sp.emoji ? h('span', { class: 'space-emoji' }, sp.emoji) : h('span', { class: 'space-initial' }, sp.name[0]?.toUpperCase() ?? '•'),
+        sp.emoji ? h('span', { class: 'space-emoji', style: sp.botColor ? `color: ${sp.botColor}` : undefined }, spaceIcon(sp.emoji)) : h('span', { class: 'space-initial' }, sp.name[0]?.toUpperCase() ?? '•'),
       ),
     ),
   );
@@ -297,6 +328,7 @@ function render(s: UiState) {
   // Rebuilding resets the scroll; only a change of Space moves it, to show the active one.
   spacesStrip.scrollLeft = spacesScroll;
   if (space.id !== lastStripSpace) spacesStrip.querySelector('.active')?.scrollIntoView({ block: 'nearest', inline: 'nearest' });
+  if (lastStripSpace && space.id !== lastStripSpace) botPlay(spaceEmoji, 'bot-hop', 900);
   if (lastStripSpace && space.id !== lastStripSpace) slideSpace(s.spaces.findIndex((sp) => sp.id === space.id) > s.spaces.findIndex((sp) => sp.id === lastStripSpace) ? 1 : -1);
   lastStripSpace = space.id;
 
@@ -408,7 +440,7 @@ async function folderMenu(folderId: string, name: HTMLElement, current: string, 
   editInline(name, current, (value) => api.renameFolder(folderId, value));
 }
 
-function renderNode(node: PinnedNode, space: Space, folderId: string | undefined): HTMLElement {
+function renderNode(node: PinnedNode, space: Space, folderId: string | undefined, zone: 'pinned' | 'favorites' = 'pinned'): HTMLElement {
   if (node.kind === 'tab') {
     const tab = state!.tabs[node.tabId];
     if (!tab) return h('span');
@@ -416,12 +448,12 @@ function renderNode(node: PinnedNode, space: Space, folderId: string | undefined
     // half of a split is drawn with its partner in the Today list, so this zone skips it.
     const pair = splitTabs(state!, space);
     if (pair?.some((half) => half.id === node.tabId)) {
-      if (pair.every((half) => pinnedHas(space.pinned, half.id))) {
-        if (pair[0].id === node.tabId) return splitRow(state!, space, pair, 'pinned');
+      if (pair.every((half) => pinnedHas(zone === 'favorites' ? space.favorites : space.pinned, half.id))) {
+        if (pair[0].id === node.tabId) return splitRow(state!, space, pair, zone);
       }
       return h('span', { hidden: true });
     }
-    return withChildren(tabRow(tab, space, { zone: 'pinned', folderId, beforeTabId: tab.id }), tab, space);
+    return withChildren(tabRow(tab, space, { zone, folderId, beforeTabId: tab.id }), tab, space);
   }
   // A name that starts with an emoji shows it in place of the folder icon, as in Arc.
   const emoji = /^\p{Extended_Pictographic}[\u{FE0F}\u{200D}\p{Extended_Pictographic}]*\s*/u.exec(node.name)?.[0];
@@ -448,12 +480,20 @@ function renderNode(node: PinnedNode, space: Space, folderId: string | undefined
     !node.open && count ? h('span', { class: 'folder-count' }, `(${count} ${count === 1 ? 'page' : 'pages'})`) : null,
   );
   header.setAttribute('aria-expanded', String(node.open));
-  acceptDrops(header, { zone: 'pinned', folderId: node.id });
+  header.dataset.folderId = node.id;
+  // A folder row drags to reorder among its siblings; its tab drops still land inside it.
+  header.draggable = true;
+  header.addEventListener('dragstart', (e) => {
+    e.dataTransfer!.setData(FOLDER_TYPE, node.id);
+    e.dataTransfer!.effectAllowed = 'move';
+  });
+  acceptFolderDrop(header, node.id);
+  acceptDrops(header, { zone, folderId: node.id });
   return h(
     'div',
     { class: `folder${node.open ? ' open' : ''}` },
     header,
-    h('div', { class: 'folder-children' }, ...node.children.map((child) => renderNode(child, space, node.id))),
+    h('div', { class: 'folder-children' }, ...node.children.map((child) => renderNode(child, space, node.id, zone))),
   );
 }
 
@@ -520,7 +560,7 @@ function splitTabs(s: UiState, space: Space): [TabInfo, TabInfo] | undefined {
 }
 
 /** The two halves of a split, drawn together as one row, as in Arc. */
-function splitRow(s: UiState, space: Space, [left, right]: [TabInfo, TabInfo], zone: 'today' | 'pinned'): HTMLElement {
+function splitRow(s: UiState, space: Space, [left, right]: [TabInfo, TabInfo], zone: 'today' | 'pinned' | 'favorites'): HTMLElement {
   const showing = !!space.activeTabId && space.split!.includes(space.activeTabId);
   return h(
     'div',
@@ -665,10 +705,12 @@ function wireTab(el: HTMLElement, tab: TabInfo, target: DropTarget) {
     e.dataTransfer!.effectAllowed = 'move';
     $('favorites').classList.add('show-empty');
     showSplitDrop(tab.id);
+    showFolderDrop();
   });
   el.addEventListener('dragend', () => {
     $('favorites').classList.remove('show-empty');
     hideSplitDrop();
+    hideFolderDrop();
   });
   acceptDrops(el, target, 'drop-before');
 }
@@ -688,6 +730,27 @@ function acceptDrops(el: HTMLElement, target: DropTarget, hoverClass = 'drag-ove
     e.preventDefault();
     e.stopPropagation();
     api.moveTab(id, target);
+  });
+}
+
+/** A folder dragged over another folder's header (or a zone's ground) moves before it, or to the
+    end of that zone. It never lands inside: the folder's own tab drops do that. */
+function acceptFolderDrop(el: HTMLElement, beforeId: string | undefined) {
+  el.addEventListener('dragover', (e) => {
+    if (!e.dataTransfer?.types.includes(FOLDER_TYPE)) return;
+    e.preventDefault();
+    e.stopPropagation();
+    e.dataTransfer.dropEffect = 'move';
+    el.classList.add('drag-over');
+  });
+  el.addEventListener('dragleave', () => el.classList.remove('drag-over'));
+  el.addEventListener('drop', (e) => {
+    el.classList.remove('drag-over');
+    const id = e.dataTransfer?.getData(FOLDER_TYPE);
+    if (!id || id === beforeId) return;
+    e.preventDefault();
+    e.stopPropagation();
+    cmd('moveFolder')(id, { spaceId: state!.activeSpaceId, beforeId });
   });
 }
 
@@ -1067,15 +1130,41 @@ function renderSpaceTheme(space: Space) {
   $<HTMLButtonElement>('space-color-reset').disabled = !space.theme && space.color === DEFAULT_SPACE_COLOR;
 }
 
+// The library's orange first, then a spread of hues that read on light and dark sidebars.
+const BOT_COLORS = ['#ff6a1a', '#f5b700', '#4cc36b', '#22b8c7', '#3d8bfd', '#8b5cf6', '#ec4899', '#ef4444'];
+
 function renderSpaceEditor() {
   const space = state?.spaces.find((s) => s.id === editingSpace);
   if (!space) return closeSpaceEditor();
   if (document.activeElement !== spaceName) spaceName.value = space.name;
-  $('space-icon').replaceChildren(space.emoji ? h('span', {}, space.emoji) : icon('space'));
-  $('space-emojis').replaceChildren(
+  $('space-icon').replaceChildren(space.emoji ? spaceIcon(space.emoji) : icon('space'));
+  const grid = $('space-emojis');
+  // The bots preview in the Space's bot colour. A rebuild while the colour dialog is open would close it.
+  grid.style.color = space.botColor ?? '';
+  if (!grid.contains(document.activeElement)) grid.replaceChildren(
+    h(
+      'div',
+      { class: 'bot-colors', role: 'group', 'aria-label': 'Bot colour' },
+      h('button', { class: `bot-color auto${space.botColor ? '' : ' selected'}`, 'aria-label': 'Sidebar colour', title: 'Sidebar colour', onclick: () => api.updateSpace(space.id, { botColor: '' }) }),
+      ...BOT_COLORS.map((c) =>
+        h('button', { class: `bot-color${space.botColor === c ? ' selected' : ''}`, style: `--swatch: ${c}`, 'aria-label': c, title: c, onclick: () => api.updateSpace(space.id, { botColor: c }) }),
+      ),
+      h('label', { class: `bot-color custom${space.botColor && !BOT_COLORS.includes(space.botColor) ? ' selected' : ''}`, title: 'Custom colour', style: space.botColor ? `--swatch: ${space.botColor}` : undefined },
+        h('input', {
+          type: 'color',
+          'aria-label': 'Custom colour',
+          value: space.botColor ?? '#ff6a1a',
+          oninput: (e: Event) => (grid.style.color = (e.target as HTMLInputElement).value),
+          onchange: (e: Event) => {
+            api.updateSpace(space.id, { botColor: (e.target as HTMLInputElement).value });
+            (e.target as HTMLInputElement).blur();
+          },
+        }),
+      ),
+    ),
     h('button', { class: `emoji${space.emoji ? '' : ' selected'}`, title: 'No icon', onclick: () => api.updateSpace(space.id, { emoji: '' }) }, icon('close')),
     ...SPACE_EMOJIS.map((emoji) =>
-      h('button', { class: `emoji${space.emoji === emoji ? ' selected' : ''}`, onclick: () => api.updateSpace(space.id, { emoji }) }, emoji),
+      h('button', { class: `emoji${space.emoji === emoji ? ' selected' : ''}`, 'aria-label': SPACE_BOTS[emoji.replace(/\uFE0F/g, '')]?.name, onclick: () => api.updateSpace(space.id, { emoji }) }, spaceIcon(emoji)),
     ),
   );
   renderSpaceTheme(space);
@@ -1120,6 +1209,37 @@ $('space-icon').onclick = () => {
   grid.hidden = !grid.hidden;
   $('space-icon').setAttribute('aria-expanded', String(!grid.hidden));
 };
+// While the picker is open every bot's eyes look toward the pointer: one direction for the
+// whole grid, from its centre, written once per frame as two CSS variables they all read.
+let gazeFrame = 0;
+document.addEventListener('pointermove', (e) => {
+  const grid = $('space-emojis');
+  if (grid.hidden || spaceEditor.hidden || gazeFrame) return;
+  gazeFrame = requestAnimationFrame(() => {
+    gazeFrame = 0;
+    const r = grid.getBoundingClientRect();
+    const dx = e.clientX - (r.left + r.width / 2), dy = e.clientY - (r.top + r.height / 2);
+    const d = Math.hypot(dx, dy, 60);
+    grid.style.setProperty('--gx', (dx / d).toFixed(2));
+    grid.style.setProperty('--gy', (dy / d).toFixed(2));
+  });
+});
+
+// ---- Space bot moods (styles.css): one-shot ones replay from the start; the timer ends them.
+const botTimers = new Map<string, number>();
+function botPlay(el: HTMLElement, mood: string, ms: number) {
+  el.classList.remove(mood);
+  void el.offsetWidth; // restart the animation
+  el.classList.add(mood);
+  clearTimeout(botTimers.get(mood));
+  botTimers.set(mood, setTimeout(() => el.classList.remove(mood), ms));
+}
+$('space-emoji').addEventListener('click', () => botPlay($('space-emoji'), 'bot-done', 1500));
+// Away from the computer, the Space's bot waits in the sidebar (eyes to slits, a slow sigh).
+if (globalThis.chrome?.idle) {
+  chrome.idle.setDetectionInterval(60);
+  chrome.idle.onStateChanged.addListener((st) => document.body.classList.toggle('bot-waiting', st !== 'active'));
+}
 $('space-manage-extensions').onclick = () => {
   closeSpaceEditor();
   api.newTab('chrome://extensions/');
@@ -1355,7 +1475,7 @@ function updatePalette() {
   // Only this Space's tabs: picking one from another Space would switch Space.
   const thisSpace = state.spaces.find((s) => s.id === state!.activeSpaceId);
   const pinnedIds = (nodes: PinnedNode[]): string[] => nodes.flatMap((n) => (n.kind === 'tab' ? [n.tabId] : pinnedIds(n.children)));
-  const pinnedHere = new Set([...(thisSpace?.favorites ?? []), ...pinnedIds(thisSpace?.pinned ?? [])]);
+  const pinnedHere = new Set([...pinnedIds(thisSpace?.favorites ?? []), ...pinnedIds(thisSpace?.pinned ?? [])]);
   const spaceTabs = new Set([...(thisSpace?.today ?? []), ...pinnedHere]);
   const matchingTabs = Object.values(state.tabs)
     .filter((t) => spaceTabs.has(t.id))
@@ -1738,6 +1858,51 @@ function hideSplitDrop() {
   api.setTabDragging(false);
 }
 
+// ---- dropping a tab into a favorites folder while the bookmarks bar has them ----------------
+// The bar is another page, whose folders a tab drag can't reach; while it drags, its folders
+// come down as chips over the bar's place, and a drop puts the tab inside.
+
+let folderDrop: HTMLElement | undefined;
+function showFolderDrop() {
+  const space = state?.spaces.find((sp) => sp.id === state!.activeSpaceId);
+  const folders = (space?.favorites ?? []).filter((n): n is Extract<PinnedNode, { kind: 'folder' }> => n.kind === 'folder');
+  if (!state?.bookmarksBar || !folders.length) return;
+  folderDrop ??= h('div', { id: 'folder-drop' });
+  folderDrop.replaceChildren(
+    h('span', { class: 'folder-drop-label' }, 'Drop into'),
+    ...folders.map((node) => {
+      const chip = h('button', { class: 'folder-drop-chip' }, icon('folder'), node.name);
+      chip.addEventListener('dragover', (e) => {
+        if (!e.dataTransfer?.types.includes(DRAG_TYPE)) return;
+        e.preventDefault();
+        e.dataTransfer.dropEffect = 'move';
+        chip.classList.add('drag-over');
+      });
+      chip.addEventListener('dragleave', () => chip.classList.remove('drag-over'));
+      chip.addEventListener('drop', (e) => {
+        chip.classList.remove('drag-over');
+        const id = e.dataTransfer?.getData(DRAG_TYPE);
+        if (!id) return;
+        e.preventDefault();
+        e.stopPropagation();
+        api.moveTab(id, { zone: 'favorites', folderId: node.id });
+        hideFolderDrop();
+      });
+      return chip;
+    }),
+  );
+  // Beside the sidebar, just below the bar's own room: the bar is a view above this page, so
+  // chips over its strip would sit under it unseen.
+  const sidebarSide = document.body.dataset.sidebar;
+  const left = sidebarSide === 'docked' ? $('sidebar').offsetWidth : sidebarSide === 'floating' ? $('sidebar').offsetLeft + $('sidebar').offsetWidth + 8 : 8;
+  Object.assign(folderDrop.style, { left: `${left}px`, top: `${8 + fullBarHeight(state?.bookmarksBar) + 4}px`, right: '8px' });
+  document.body.append(folderDrop);
+}
+
+function hideFolderDrop() {
+  folderDrop?.remove();
+}
+
 for (const half of splitDrop.querySelectorAll<HTMLElement>('.drop-half')) {
   half.addEventListener('dragover', (e) => {
     if (!e.dataTransfer?.types.includes(DRAG_TYPE)) return;
@@ -1928,6 +2093,19 @@ favorites.addEventListener('focusin', (e) => {
   if (tile?.matches(':focus-visible')) openFavCard(tile.dataset.tabId!, 0);
 });
 favorites.addEventListener('focusout', leaveFavCard);
+
+// A folder asks for its name in place — the bar's folders on their buttons, a tile on itself,
+// and a tree folder (the favorites', with the bar off) on its row's name.
+on('rename-favorite-folder', (folderId: string) => {
+  const id = CSS.escape(folderId);
+  const tile = document.querySelector<HTMLElement>(`#favorites .fav[data-folder-id="${id}"]`);
+  if (tile) {
+    editInline(tile, tile.getAttribute('aria-label') ?? '', (value) => value && cmd('renameFavoriteFolder')(folderId, value));
+    return;
+  }
+  const treeName = document.querySelector<HTMLElement>(`#pinned .row[data-folder-id="${id}"] .folder-name`);
+  if (treeName) editInline(treeName, treeName.textContent ?? '', (value) => value && cmd('renameFavoriteFolder')(folderId, value));
+});
 favCard.addEventListener('pointerenter', () => clearTimeout(favCardLeave));
 favCard.addEventListener('pointerleave', leaveFavCard);
 window.addEventListener('blur', hideFavCard);
@@ -2226,8 +2404,12 @@ $('sidebar').addEventListener('contextmenu', (e) => {
   api.sidebarMenu();
 });
 
-acceptDrops($('favorites'), { zone: 'favorites' });
-acceptDrops($('pinned'), { zone: 'pinned' });
+acceptDrops($('favorites'), { zone: 'pinned' });
+acceptFolderDrop($('favorites'), undefined);
+// The tree's root takes what the tree holds: favorites, unless the bookmarks bar has them.
+const treeDropTarget: { zone: 'favorites' | 'pinned' } = { zone: 'favorites' };
+acceptDrops($('pinned'), treeDropTarget as DropTarget);
+acceptFolderDrop($('pinned'), undefined);
 acceptDrops($('today'), { zone: 'today' });
 acceptDrops($('btn-newtab'), { zone: 'today' });
 
