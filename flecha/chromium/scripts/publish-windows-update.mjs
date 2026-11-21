@@ -15,11 +15,18 @@ if (!installer || !/^\d+\.\d+\.\d+\.\d+$/.test(version ?? '') || !process.env.PE
   process.exit(1);
 }
 
+// The staged shell's version: a shell update (same engine) is announced to
+// the running shells through this field, which they compare against their
+// own manifest version.
+const shellVersion = JSON.parse(
+  readFileSync(new URL('../shell/dist/manifest.json', import.meta.url), 'utf8'),
+).version;
+
 const hash = createHash('sha256');
 for await (const chunk of createReadStream(installer)) hash.update(chunk);
 
 const name = `perseu-${version}-installer.exe`;
-const signed = JSON.stringify({ version, url: `https://github.com/${repo}/releases/download/v${version}/${name}`, sha256: hash.digest('hex') });
+const signed = JSON.stringify({ version, url: `https://github.com/${repo}/releases/download/v${version}/${name}`, sha256: hash.digest('hex'), shellVersion });
 const key = createPrivateKey(readFileSync(process.env.PERSEU_UPDATE_KEY));
 const signature = sign(null, Buffer.from(signed), key).toString('base64');
 

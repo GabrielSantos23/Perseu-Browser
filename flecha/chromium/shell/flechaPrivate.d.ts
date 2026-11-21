@@ -89,8 +89,8 @@ declare namespace chrome.flechaPrivate {
   function detectImportBrowsers(): Promise<string>;
   function readImportBrowser(id: string): Promise<string>;
   function stopLoading(tabId: number): Promise<void>;
-  /** Downloads and hash-checks an update newer than this build. */
-  function prepareUpdate(update: { version: string; url: string; sha256: string }): Promise<'ready' | 'current' | 'unsupported' | 'busy' | 'failed'>;
+  /** Downloads and hash-checks an update: an engine newer than this build's, or a shell newer than the one running. */
+  function prepareUpdate(update: { version: string; url: string; sha256: string; runningShellVersion: string; shellVersion?: string }): Promise<'ready' | 'current' | 'unsupported' | 'busy' | 'failed'>;
   /** Installs what prepareUpdate() got ready and restarts. */
   function installUpdate(): Promise<'restarting' | 'none' | 'busy' | 'failed'>;
   function getMedia(tabId: number): Promise<{ playing: boolean; title: string; artist: string; album: string; canNext: boolean; canPrevious: boolean; position: number; duration: number } | undefined>;

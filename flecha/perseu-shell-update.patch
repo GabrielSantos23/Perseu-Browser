@@ -1,0 +1,43 @@
+--- a/chrome/common/extensions/api/flecha_private.idl
++++ b/chrome/common/extensions/api/flecha_private.idl
+@@ -164,6 +164,12 @@
+     DOMString version;
+     DOMString url;
+     DOMString sha256;
++    // The update's shell's version: a shell newer than the one running counts
++    // as an update even when the engine's version is the same (the same-
++    // version install replaces the shell's files, which it reloads).
++    DOMString? shellVersion;
++    // The running shell's version, passed by the checking page.
++    DOMString? runningShellVersion;
+   };
+   callback UpdateStatusCallback = void (DOMString status);
+ 
+--- a/chrome/browser/extensions/api/flecha_private/flecha_private_api.cc
++++ b/chrome/browser/extensions/api/flecha_private/flecha_private_api.cc
+@@ -469,6 +469,8 @@
+ 
+ #if BUILDFLAG(IS_WIN)
+   const base::Version version(params->update.version);
++  const base::Version shell_version(params->update.shell_version);
++  const base::Version running_shell_version(params->update.running_shell_version);
+   url_ = GURL(params->update.url);
+   sha256_ = base::ToLowerASCII(params->update.sha256);
+   std::vector<uint8_t> hash;
+@@ -477,7 +479,15 @@
+       hash.size() != crypto::hash::kSha256Size) {
+     return RespondNow(Error("Invalid update"));
+   }
+-  if (version <= version_info::GetVersion()) {
++  // An engine update: a version newer than this build's. A shell update: the
++  // same engine, but a shell newer than the one running — the setup's
++  // same-version install replaces the shell's files, which it reloads by its
++  // manifest version on the restart.
++  const bool engine_update = version > version_info::GetVersion();
++  const bool shell_update =
++      !engine_update && shell_version.IsValid() &&
++      running_shell_version.IsValid() && shell_version > running_shell_version;
++  if (!engine_update && !shell_update) {
+     return RespondNow(WithArguments("current"));
+   }
+   version_ = version.GetString();

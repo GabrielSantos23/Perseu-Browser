@@ -22,9 +22,11 @@ export async function checkForUpdate() {
     const res = await fetch(FEED, { cache: 'no-store' });
     if (!res.ok) throw new Error(`Update feed: ${res.status}`);
     const update = await readFeed(await res.json(), PUBLIC_KEY);
-    const status = await chrome.flechaPrivate.prepareUpdate(update);
+    // The running shell's version: a feed whose engine matches this build's
+    // but whose shell is newer (shellVersion) still counts as an update.
+    const status = await chrome.flechaPrivate.prepareUpdate({ ...update, runningShellVersion: chrome.runtime.getManifest().version });
     await setStatus(status === 'busy' ? 'checking' : status, update.version);
-    if (status === 'ready' && updateStatus?.version !== update.version) broadcast('flash', `Perseu ${update.version} is ready. Restart from Settings.`);
+    if (status === 'ready' && updateStatus?.version !== update.version) broadcast('flash', `Perseu ${update.shellVersion ?? update.version} is ready. Restart from Settings.`);
   } catch (err) {
     console.warn('Perseu update check failed', err);
     await setStatus('failed');

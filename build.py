@@ -257,6 +257,17 @@ def main():
                 source_tree,
                 patch_bin_path=(source_tree / _PATCH_BIN_RELPATH)
             )
+        # Then Perseu's own additions on top of the Flecha layer (applied in order).
+        _perseu_patches = [
+            _ROOT_DIR / 'flecha' / 'perseu-shell-update.patch',
+        ]
+        _existing = [p.resolve() for p in _perseu_patches if p.exists()]
+        if _existing:
+            patches.apply_patches(
+                _existing,
+                source_tree,
+                patch_bin_path=(source_tree / _PATCH_BIN_RELPATH)
+            )
 
         # Substitute domains
         domain_substitution_list = (_ROOT_DIR / 'ungoogled-chromium' / 'domain_substitution.list') if args.tarball else (_ROOT_DIR  / 'domain_substitution.list')
